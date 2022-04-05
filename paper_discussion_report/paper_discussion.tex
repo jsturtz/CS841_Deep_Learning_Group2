@@ -39,9 +39,9 @@
 
 % As a general rule, do not put math, special symbols or citations
 % in the abstract or keywords.
-% \begin{abstract}
-% The abstract goes here.
-% \end{abstract}
+\begin{abstract}
+The abstract goes here.
+\end{abstract}
 
 % Note that keywords are not normally used for peerreview papers.
 % \begin{IEEEkeywords}
@@ -64,10 +64,18 @@
 %
 % Here we have the typical use of a "T" for an initial drop letter
 % and "HIS" in caps to complete the first word.
-\IEEEPARstart{I}{introduction} goes here.
+\IEEEPARstart{I}{n} this report, we discuss a paper authored by Gunasekaran, et al. (2021)
+that uses deep learning methods to perform DNA sequence classification.
+
 
 \section{Problem Statement}
-\lipsum[1] % Generate latin nonsense
+All DNA and RNA is composed of a string of nucleotides. These nucleotide strings
+can range from lengths of 8 up to 32K (FIXME: Get from paper). A nucleotide refers to one of
+four compounds for DNA (adenine, cytocine, guanine, thymine) or four compounds for RNA
+(adenine, cytocine, guanine, uracil). Thus, every DNA virus can be identified by a string of
+characters drawn from the set $\{A, C, G, T\}$ and every RNA virus can be identified by a string
+of characters drawn from the set $\{A, C, G, U\}$. The task, then, is to classify a virus 
+from its DNA or RNA sequence, i.e. a string of characters drawn from one of the above sets.
 
 \section{Related Work}
 \lipsum[1] % Generate latin nonsense
@@ -76,12 +84,19 @@
 \lipsum[1] % Generate latin nonsense
 
 \section{Data Collection}
-\lipsum[1] % Generate latin nonsense
+Training data were collected from...
 
 \section{Data Preprocessing}
-\lipsum[1] % Generate latin nonsense
+The authors encoded the data in two different formats for comparative analysis.
+First, they used label encoding, which represents each character by a unique index,
+preserving positional information (citation, see figure, etc).
+Second, they used kmer encoding, which generates all kmers from a sequence and forms an
+English-like sentence onto which natural language processing techniques are applied.
 
-\section{Proposed Model}
+In both cases, the result is a one-hot encoded vector that will be fed into the first layer
+of all the models, which is an embedding layer. (FIXME: Finish this section with more detail)
+
+\section{Proposed Models}
 \lipsum[1] % Generate latin nonsense
 
 \subsection{Model Architecture}
@@ -102,7 +117,9 @@
 \begin{thebibliography}{1}
 
 \bibitem{IEEEhowto:kopka}
-X.~Lastname1 and X.~Lastname2, "Title of Article", \emph{Journal Name}, vol. X, no. Y, pp. XXX-YYY, 2022.
+H.~Gunasekaran, K.~Ramalakshmi, A.~Rex~Macedo~Arokiaraj, S.~Deepa~Kanmani, C.~Venkatesan, and C.~Suresh~Gnana~Dhas.
+  "Analysis of DNA Sequence Classification Using CNN and Hybrid Models." 
+  \emph{Computational and mathematical methods in medicine}, 2021.
 \end{thebibliography}
 
 \end{document}
