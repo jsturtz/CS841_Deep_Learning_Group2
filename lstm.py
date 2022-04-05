@@ -1,6 +1,10 @@
 import json
 import numpy as np
 import random
+import os
+import time
+from datetime import datetime
+
 from keras.models import Sequential
 from keras.layers import Dense, LSTM, Conv1D
 from keras.utils import np_utils
@@ -8,9 +12,6 @@ from matplotlib import pyplot as plt
 from matplotlib.ticker import MaxNLocator
 from tensorflow.keras.callbacks import EarlyStopping
 from tensorflow.keras.callbacks import Callback
-from datetime import datetime
-import time
-from enum import Enum
 
 # Use monospace to make formatting cleaner
 plt.rcParams.update({'font.family':'monospace'})
@@ -22,9 +23,12 @@ np.random.seed(7)
 # Globals here
 # =============================================================================
 
+# Path to save results
+RESULTS_PATH = os.path.join(os.getcwd(), "results")
+
 # Model parameters
 KMER_LENGTH = 20
-MAX_EPOCH_LENGTH = 500
+MAX_EPOCH_LENGTH = 5
 NUM_LSTM_LAYERS = 512
 FIRST_CONV_FILTERS = 128
 FIRST_CONV_KERNEL_SIZE = 5
@@ -63,21 +67,16 @@ all_chars = set("".join(list(names_to_sequences.values())))
 char_to_int = {c: i for i, c in enumerate(all_chars)}
 num_classes = len(char_to_int)
 
-# Used in formatting table of parameters
-# pad_name = max(len(item) for item in parameters.keys())
-# pad_value= max(len(str(item)) for item in parameters.values())
-
 # =============================================================================
 # FUNCTIONS START HERE
 # =============================================================================
 
 # =============================================================================
 # Save what we want from the results
-def save_result(run_number, approach, test_accuracy, history, model, secs_to_train):
+def save_result(test_accuracy, history, model, secs_to_train):
     now = datetime.now().strftime("%H-%M-%S")
     epoch_length = len(history["epochs_to_patience"])
     epoch_axis = list(range(1, epoch_length + 1))
-    pretty_approach_name = " ".join(item.capitalize() for item in approach.split("_"))
 
     # Note that even in the OO-style, we use `.pyplot.figure` to create the Figure.
     fig, ax = plt.subplots()
@@ -85,7 +84,7 @@ def save_result(run_number, approach, test_accuracy, history, model, secs_to_tra
     ax.plot(epoch_axis, history["val_accuracy"], label='Validation')
     ax.set_xlabel('Epochs')  # Add an x-label to the axes.
     ax.set_ylabel('Accuracy')  # Add a y-label to the axes.
-    ax.set_title(f'Accuracy on Run {run_number} Using Approach {pretty_approach_name}')  # Add a title to the axes.
+    ax.set_title(f'Accuracy')  # Add a title to the axes.
     ax.xaxis.set_major_locator(MaxNLocator(integer=True))
 
     # FIXME: Was trying to add the model parameters to the figure but fuck it
@@ -105,7 +104,7 @@ def save_result(run_number, approach, test_accuracy, history, model, secs_to_tra
     #             fontsize=10)
 
     ax.legend();  # Add a legend.
-    filename = f"{approach}_{run_number}_{now}"
+    filename = f"{now}"
 
     # FIXME: This shit sucks. The actual method to call depends on the backend used for the UI. This only works if backend
     # is QT. Really stupid that it's written to be backend specific. Should be a universal call regardless of backend to
@@ -115,7 +114,7 @@ def save_result(run_number, approach, test_accuracy, history, model, secs_to_tra
     # Resize this thing appropriately
     # manager = plt.get_current_fig_manager()
     # manager.window.showMaximized()
-    fig.savefig(f"{filename}_accuracy.png")
+    fig.savefig(os.path.join(RESULTS_PATH, f"{filename}_accuracy.png"))
 
     result = {
         "test_accuracy": test_accuracy,
@@ -126,10 +125,12 @@ def save_result(run_number, approach, test_accuracy, history, model, secs_to_tra
         "history": history,
     }
 
-    with open(f"{filename}_results.json", "w+") as f:
+    path = os.path.join(RESULTS_PATH, f"{filename}_results.json")
+    with open(path, "w+") as f:
         f.write(json.dumps(result))
 
-    with open(f"{filename}_model_summary.txt", "w+") as f:
+    path = os.path.join(RESULTS_PATH, f"{filename}_model_summary.txt")
+    with open(path, "w+") as f:
         model.summary(print_fn=lambda x: f.write(x + '\n'))
 
     # Used this to print out the epochs to patience, but don't need it all the time
@@ -147,7 +148,7 @@ def save_result(run_number, approach, test_accuracy, history, model, secs_to_tra
     ax.xaxis.set_major_locator(MaxNLocator(integer=True))
     ax.yaxis.set_major_locator(MaxNLocator(integer=True))
     ax.legend();  # Add a legend.
-    fig.savefig(f"{filename}_patience.png")
+    fig.savefig(os.path.join(RESULTS_PATH, f"{filename}_patience.png"))
 
 # =============================================================================
 class ReportPatience(Callback):
@@ -199,46 +200,10 @@ def preprocess_data(dataset):
     return dataX, dataY
 
 # =============================================================================
-def approach1_data():
-    """
-    For this approach, we choose each of our N sequences as a holdout test set and 
-    train on the other sequences. We do N runs of this. 
+def main():
 
-    I didn't want to delete this work, so I moved my old approach into a function.
-    Can easily switch back by updating commented out line below
-    """
-    runs = []
-    for test_name in names_to_sequences:
-        test_seq = names_to_sequences[test_name]
-        training_seqs = [names_to_sequences[name] for name in names_to_sequences if name != test_name]
-
-        training_data = []
-        test_data = []
-
-        # iterate over each sequence, starting at kmer_length to ignore first kmer_length characters
-        for seq in training_seqs:
-            for index in range(KMER_LENGTH, len(seq)):
-                seq_in = seq[index - KMER_LENGTH:index]
-                seq_out = seq[index]
-                training_data.append([[char_to_int[char] for char in seq_in], char_to_int[seq_out]])
-
-        for index in range(KMER_LENGTH, len(test_seq)):
-            seq_in = test_seq[index - KMER_LENGTH:index]
-            seq_out = test_seq[index]
-            test_data.append([[char_to_int[char] for char in seq_in], char_to_int[seq_out]])
-
-        runs.append((training_data, test_data))
-
-    return runs
-
-# =============================================================================
-def approach2_data():
-    """
-    For this approach, we randomize all the sequence data, then do a usual training/validation/test split.
-    We do one run
-    """
     all_data = list(names_to_sequences.values())
-    random.shuffle(all_data)
+    random.shuffle(all_data) # FIXME: Make sure this randomization is working
     test_threshold = int(0.10 * len(all_data))
 
     raw_test_data = all_data[:test_threshold]
@@ -257,91 +222,46 @@ def approach2_data():
     
     test_data = convert_raw_to_processed_data(raw_test_data)
     training_data = convert_raw_to_processed_data(raw_training_data)
-    return [(training_data, test_data)]
 
-# =============================================================================
-def approach3_data():
-    """
-    The new and latest approach to handling the training/test data.
-    In this approach, all sequences are used as training data and only the missing gaps 
-    from our paper are used for model evaluation
-    """
-    target_sequence = "DIQMTQSPSSLSASVGDRVTITCKASQNIDKYLNWYQQKPGKAPKLLIYNTNNLQTGVPSRFSGSGSGTDFTFTISSLQPEDIATYYCLQHISRPRTFGQGTKVEIKRTVAAPSVFIFPPSDEQLKSGTASVVCLLNNFYPREAKVQWKVDNALQSGNSQESVTEQDSKDSTYSLSSTLTLSKADYEKHKVYACEVTHQGLSSPVTKSFNRGEC"
-    missing_indices = set([0, 1, 2, 24, 25, 26, 62, 63, 64, 66, 67, 68, 69, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 209, 210, 211, 212, 213])
+    # Shuffle the training data so we can split randomly into validation / training
+    # FIXME: Do we need to shuffle again?
+    random.shuffle(training_data)
 
-    training_data = []
-    test_data = []
+    # Split training set into validation set based on validation_percent
+    validation_threshold = int(VALIDATION_PERCENT * len(training_data))
+    validation_data = training_data[:validation_threshold]
+    training_data = training_data[validation_threshold:]
 
-    # Iterate over each sequence, starting at kmer_length to ignore first kmer_length characters
-    training_seqs = names_to_sequences.values()
-    for seq in training_seqs:
-        for index in range(KMER_LENGTH, len(seq)):
-            seq_in = seq[index - KMER_LENGTH:index]
-            seq_out = seq[index]
-            training_data.append([[char_to_int[char] for char in seq_in], char_to_int[seq_out]])
+    # Convert lists of lists to appropriate data structure complete with any necessary preprocessing
+    trainX, trainY = preprocess_data(training_data)
+    testX, testY = preprocess_data(test_data)
+    validX, validY = preprocess_data(validation_data)
 
-    for index in [i for i in missing_indices if i >= KMER_LENGTH]:
-        seq_in = target_sequence[index - KMER_LENGTH:index]
-        seq_out = target_sequence[index]
-        test_data.append([[char_to_int[char] for char in seq_in], char_to_int[seq_out]])
+    # create the model
+    model = Sequential()
+    model.add(Conv1D(FIRST_CONV_FILTERS, FIRST_CONV_KERNEL_SIZE))
+    model.add(LSTM(NUM_LSTM_LAYERS, input_shape=(trainX.shape[1], trainX.shape[2])))
+    model.add(Dense(FIRST_DENSE_LAYER, activation=HIDDEN_LAYER_ACTIVATION_FUNC))
+    model.add(Dense(SECOND_DENSE_LAYER, activation=HIDDEN_LAYER_ACTIVATION_FUNC))
+    model.add(Dense(trainY.shape[1], activation=OUTPUT_ACTIVATION_FUNC))
+    model.compile(loss=COST_FUNC, optimizer=OPTIMIZER, metrics=['accuracy'])
 
-    return [(training_data, test_data)]
+    # fit the data, summarize performance of the model
+    start = time.time()
+    history = model.fit(
+        trainX, 
+        trainY, 
+        epochs=MAX_EPOCH_LENGTH, 
+        batch_size=1, 
+        verbose=2, 
+        validation_data=(validX, validY), 
+        callbacks = [EarlyStopping(monitor="val_loss", patience=PATIENCE_THRESHOLD), ReportPatience()],
+    )
+    end = time.time()
+    secs_to_train = int(end - start)
 
-approaches = {
-    "withhold_one_sequence": approach1_data,
-    "test_against_gaps": approach2_data,
-    "randomize_split": approach3_data,
-}
-
-# =============================================================================
-def main():
-
-    # Swap these out to try different approaches to handling the data
-    approach = "withhold_one_sequence"
-    # approach = "test_against_gaps"
-    # approach = "randomize_split"
-
-    runs = approaches[approach]()
-    for run_num, (training_data, test_data) in enumerate(runs, 1):
-
-        # Shuffle the training data so we can split randomly into validation / training
-        random.shuffle(training_data)
-
-        # Split training set into validation set based on validation_percent
-        validation_threshold = int(VALIDATION_PERCENT * len(training_data))
-        validation_data = training_data[:validation_threshold]
-        training_data = training_data[validation_threshold:]
-
-        # Convert lists of lists to appropriate data structure complete with any necessary preprocessing
-        trainX, trainY = preprocess_data(training_data)
-        testX, testY = preprocess_data(test_data)
-        validX, validY = preprocess_data(validation_data)
-
-        # create the model
-        model = Sequential()
-        model.add(Conv1D(FIRST_CONV_FILTERS, FIRST_CONV_KERNEL_SIZE))
-        model.add(LSTM(NUM_LSTM_LAYERS, input_shape=(trainX.shape[1], trainX.shape[2])))
-        model.add(Dense(FIRST_DENSE_LAYER, activation=HIDDEN_LAYER_ACTIVATION_FUNC))
-        model.add(Dense(SECOND_DENSE_LAYER, activation=HIDDEN_LAYER_ACTIVATION_FUNC))
-        model.add(Dense(trainY.shape[1], activation=OUTPUT_ACTIVATION_FUNC))
-        model.compile(loss=COST_FUNC, optimizer=OPTIMIZER, metrics=['accuracy'])
-
-        # fit the data, summarize performance of the model
-        start = time.time()
-        history = model.fit(
-            trainX, 
-            trainY, 
-            epochs=MAX_EPOCH_LENGTH, 
-            batch_size=1, 
-            verbose=2, 
-            validation_data=(validX, validY), 
-            callbacks = [EarlyStopping(monitor="val_loss", patience=PATIENCE_THRESHOLD), ReportPatience()],
-        )
-        end = time.time()
-        secs_to_train = int(end - start)
-
-        _, accuracy = model.evaluate(testX, testY, verbose=0)
-        save_result(run_num, approach, f"{accuracy:.2f}", history.history, model, secs_to_train)
+    _, accuracy = model.evaluate(testX, testY, verbose=0)
+    save_result(f"{accuracy:.2f}", history.history, model, secs_to_train)
 
 if __name__ == "__main__":
     main()
