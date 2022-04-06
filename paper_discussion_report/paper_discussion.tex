@@ -1,11 +1,7 @@
 
-% NOTES: Could have a section talking explicitly about the concept of the "Memory Cell"
-% COuld have a section at the end that discusses choices for model parameters in a specific example
-% Could have section in beginning to go over the basics of recurrent neural networks
-
 \documentclass[journal]{IEEEtran}
-\usepackage{tikz}
 \usepackage{lipsum}
+\usepackage{tikz}
 \usetikzlibrary{decorations.pathreplacing,angles,quotes}
 
 % correct bad hyphenation here
@@ -39,9 +35,9 @@
 
 % As a general rule, do not put math, special symbols or citations
 % in the abstract or keywords.
-\begin{abstract}
-The abstract goes here.
-\end{abstract}
+% \begin{abstract}
+% The abstract goes here.
+% \end{abstract}
 
 % Note that keywords are not normally used for peerreview papers.
 % \begin{IEEEkeywords}
@@ -59,23 +55,40 @@ The abstract goes here.
 % creates the second title. It will be ignored for other modes.
 \IEEEpeerreviewmaketitle
 
-\section{Introduction}
+\section{Summary}
 
 %
 % Here we have the typical use of a "T" for an initial drop letter
 % and "HIS" in caps to complete the first word.
-\IEEEPARstart{I}{n} this report, we discuss a paper authored by Gunasekaran, et al. (2021)
-that uses deep learning methods to perform DNA sequence classification.
-
+\IEEEPARstart{A}{} paper authored by Gunasekaran, et al. (2021) uses deep learning methods 
+to perform classification of viruses from their DNA sequences. Since DNA is composed of strings
+of nucleotides, the problem amounts to classifying viruses according to samples of nucleotide
+strings. The authors collect data from the public nucleotide sequence database,
+The National Centre for Biotechnology Information (NCBI) https://www.ncbi.nlm.nih.gov.
+They then encode this data using label encoding and kmer encoding. For each encoding type,
+they run three different deep learning models: CNN, CNN-LSTM, and CNN-Bidirectional-LSTM.
+The architectures of all three models start with embedding layers, then convolutional layers,
+then max pooling layers, and then from there diverge to either add LSTM layers or 
+bidrectional LSTM layers before finishing with dense layers and a final output layer.
+The authors compare all six combinations of the two encoding methods with the three model types
+using several performance metrics.
 
 \section{Problem Statement}
-All DNA and RNA is composed of a string of nucleotides. These nucleotide strings
-can range from lengths of 8 up to 32K (FIXME: Get from paper). A nucleotide refers to one of
+All DNA and RNA is composed of a string of nucleotides. A nucleotide refers to one of
 four compounds for DNA (adenine, cytocine, guanine, thymine) or four compounds for RNA
-(adenine, cytocine, guanine, uracil). Thus, every DNA virus can be identified by a string of
+(adenine, cytocine, guanine, uracil). For double-helix DNA or RNA, each nucleotide
+bonds with one and only one other nucleotide, forming what is called a base pair (fig 1). Since
+these base pairs are fixed, then, a DNA or RNA sequence can be identified solely by one
+side of the double helix. Thus, every DNA virus can be identified by a single string of
 characters drawn from the set $\{A, C, G, T\}$ and every RNA virus can be identified by a string
-of characters drawn from the set $\{A, C, G, U\}$. The task, then, is to classify a virus 
-from its DNA or RNA sequence, i.e. a string of characters drawn from one of the above sets.
+of characters drawn from the set $\{A, C, G, U\}$. The task, then, is to build highly accurate
+models to classify a virus from its DNA or RNA sample.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=8cm]{figures/dna.png}
+  \caption{Single or double-stranded DNA/RNA}
+\end{figure}
 
 \section{Related Work}
 \lipsum[1] % Generate latin nonsense
@@ -84,17 +97,43 @@ from its DNA or RNA sequence, i.e. a string of characters drawn from one of the 
 \lipsum[1] % Generate latin nonsense
 
 \section{Data Collection}
-Training data were collected from...
+The authors obtain complete genomic sequences from the 
+National Centre for Biotechnology Information (NCBI) https://www.ncbi.nlm.nih.gov/.
+Sequence length ranges from 8 to 37971 nucleoids. They collected genomic sequences
+for six virus classes: COVID, MERS, SARS, Dengue, Hepatitus, and Influenza (Fig 2).
+Because the population of these viruses were unbalanced--for instance, there were 37272
+samples of COVID and only 1418 samples of MERS--the authors opted to use
+Synthetic Minority Oversampling Technique (SMOTE) to get a more even distribution of
+all six classes in their dataset.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=8cm]{figures/data_collection.png}
+  \caption{Samples of virus classes retrieved from NCBI}
+\end{figure}
 
 \section{Data Preprocessing}
 The authors encoded the data in two different formats for comparative analysis.
-First, they used label encoding, which represents each character by a unique index,
-preserving positional information (citation, see figure, etc).
-Second, they used kmer encoding, which generates all kmers from a sequence and forms an
-English-like sentence onto which natural language processing techniques are applied.
+In the first approach, they use label encoding, which replaces each nucleoid by a unique index value,
+preserving positional information (fig 3).
+In the second approach, they used kmer encoding, which generates all kmers from a sequence 
+and forms an English-like sentence onto which natural language processing techniques
+can be applied (fig 4).
 
-In both cases, the result is a one-hot encoded vector that will be fed into the first layer
-of all the models, which is an embedding layer. (FIXME: Finish this section with more detail)
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=8cm]{figures/label_encoding.png}
+  \caption{Label encoding example}
+\end{figure}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=8cm]{figures/kmer_encoding.png}
+  \caption{Kmer encoding example, where k=6}
+\end{figure}
+
+Once encoded, in both cases the input data is one-hot encoded and then fed into
+the first layer of the models, which is an embedding layer.
 
 \section{Proposed Models}
 \lipsum[1] % Generate latin nonsense
