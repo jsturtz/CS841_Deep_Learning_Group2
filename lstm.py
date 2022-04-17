@@ -234,7 +234,7 @@ def main():
     # create the model
     model = Sequential()
     model.add(Conv1D(FIRST_CONV_FILTERS, FIRST_CONV_KERNEL_SIZE))
-    # model.add(Bidirectional(LSTM(NUM_LSTM_LAYERS), input_shape=(trainX.shape[1], trainX.shape[2])))
+    model.add(Bidirectional(LSTM(NUM_LSTM_LAYERS), input_shape=(trainX.shape[1], trainX.shape[2])))
     model.add(LSTM(NUM_LSTM_LAYERS, input_shape=(trainX.shape[1], trainX.shape[2])))
     model.add(Dense(FIRST_DENSE_LAYER, activation=HIDDEN_LAYER_ACTIVATION_FUNC))
     model.add(Dense(SECOND_DENSE_LAYER, activation=HIDDEN_LAYER_ACTIVATION_FUNC))
