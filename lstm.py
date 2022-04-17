@@ -6,7 +6,7 @@ import time
 from datetime import datetime
 
 from keras.models import Sequential
-from keras.layers import Dense, LSTM, Conv1D
+from keras.layers import Dense, LSTM, Conv1D, Bidirectional
 from keras.utils import np_utils
 from matplotlib import pyplot as plt
 from matplotlib.ticker import MaxNLocator
@@ -28,7 +28,8 @@ RESULTS_PATH = os.path.join(os.getcwd(), "results")
 
 # Model parameters
 KMER_LENGTH = 20
-MAX_EPOCH_LENGTH = 5
+MAX_EPOCH_LENGTH = 100
+EMBEDDING_DIM = 128
 NUM_LSTM_LAYERS = 512
 FIRST_CONV_FILTERS = 128
 FIRST_CONV_KERNEL_SIZE = 5
@@ -38,34 +39,11 @@ COST_FUNC = "categorical_crossentropy"
 OPTIMIZER = "adam"
 OUTPUT_ACTIVATION_FUNC = "softmax"
 HIDDEN_LAYER_ACTIVATION_FUNC = "relu"
-VALIDATION_PERCENT = 0.3
+TRAINING_SPLIT = 0.8
+TEST_SPLIT = 0.1
+VALIDATION_SPLIT = 0.1
 PATIENCE_THRESHOLD = 20
-
-# I wanted to keep all the parameters in a dict so they would be easy to save when we call save_result.
-parameters = {
-    "kmer_length": KMER_LENGTH,
-    "max_epoch_length": MAX_EPOCH_LENGTH,
-    "num_lstm_layers": NUM_LSTM_LAYERS,
-    "first_conv_filters": FIRST_CONV_FILTERS, 
-    "first_conv_kernel_size": FIRST_CONV_KERNEL_SIZE,
-    "first_dense_layer": FIRST_DENSE_LAYER,
-    "second_dense_layer": SECOND_DENSE_LAYER,
-    "cost_func": COST_FUNC,
-    "optimizer": OPTIMIZER,
-    "output_activation_func": OUTPUT_ACTIVATION_FUNC,
-    "hidden_layer_activation_func": HIDDEN_LAYER_ACTIVATION_FUNC,
-    "validation_percent": VALIDATION_PERCENT,
-    "patience_threshold": PATIENCE_THRESHOLD,
-}
-
-# Get raw data, create mapping of characters to integers
-with open("alemtuzumab_sequences.txt", "r") as input_file:
-    sequences = [seq.split("\n") for seq in input_file.read().split(">") if seq]
-    names_to_sequences = {name.replace(":", "").replace("|", ""): "".join(parts).strip() for name, *parts in sequences}
-
-all_chars = set("".join(list(names_to_sequences.values())))
-char_to_int = {c: i for i, c in enumerate(all_chars)}
-num_classes = len(char_to_int)
+NUM_CLASSES = None
 
 # =============================================================================
 # FUNCTIONS START HERE
@@ -115,6 +93,24 @@ def save_result(test_accuracy, history, model, secs_to_train):
     # manager = plt.get_current_fig_manager()
     # manager.window.showMaximized()
     fig.savefig(os.path.join(RESULTS_PATH, f"{filename}_accuracy.png"))
+
+    parameters = {
+        "kmer_length": KMER_LENGTH,
+        "max_epoch_length": MAX_EPOCH_LENGTH,
+        "embedding_dim": EMBEDDING_DIM,
+        "num_lstm_layers": NUM_LSTM_LAYERS,
+        "first_conv_filters": FIRST_CONV_FILTERS, 
+        "first_conv_kernel_size": FIRST_CONV_KERNEL_SIZE,
+        "first_dense_layer": FIRST_DENSE_LAYER,
+        "second_dense_layer": SECOND_DENSE_LAYER,
+        "cost_func": COST_FUNC,
+        "optimizer": OPTIMIZER,
+        "output_activation_func": OUTPUT_ACTIVATION_FUNC,
+        "hidden_layer_activation_func": HIDDEN_LAYER_ACTIVATION_FUNC,
+        "training/validation/test split": f"{int(TRAINING_SPLIT * 100)}/{int(VALIDATION_SPLIT* 100)}/{int(TEST_SPLIT * 100)}",
+        "patience_threshold": PATIENCE_THRESHOLD,
+        "num_classes": NUM_CLASSES,
+    }
 
     result = {
         "test_accuracy": test_accuracy,
@@ -192,54 +188,53 @@ def preprocess_data(dataset):
 
     # reshape X to be [samples, time steps, features], normalize
     dataX = np.reshape(input_as_lst, (len(input_as_lst), KMER_LENGTH, 1))
-    dataX = dataX / float(num_classes)
+    dataX = dataX / float(NUM_CLASSES)
 
     # Convert output to categorical vector
-    dataY = np_utils.to_categorical(output_as_lst, num_classes=num_classes)
+    dataY = np_utils.to_categorical(output_as_lst, num_classes=NUM_CLASSES)
 
     return dataX, dataY
 
 # =============================================================================
 def main():
 
-    all_data = list(names_to_sequences.values())
-    random.shuffle(all_data) # FIXME: Make sure this randomization is working
-    test_threshold = int(0.10 * len(all_data))
+    # Get raw data, create mapping of characters to integers
+    with open("alemtuzumab_sequences.txt", "r") as input_file:
+        sequences = [seq.split("\n") for seq in input_file.read().split(">") if seq]
+        # names_to_sequences = {name.replace(":", "").replace("|", ""): "".join(parts).strip() for name, *parts in sequences}
+        sequences = ["".join(parts).strip() for _, *parts in sequences]
 
-    raw_test_data = all_data[:test_threshold]
-    raw_training_data = all_data[test_threshold:]
+    all_chars = set("".join(sequences))
+    char_to_int = {c: i for i, c in enumerate(all_chars)}
 
-    def convert_raw_to_processed_data(dataset):
-        processed_data = []
-        # iterate over each sequence, starting at kmer_length to ignore first kmer_length characters
-        for seq in dataset:
-            for index in range(KMER_LENGTH, len(seq)):
-                seq_in = seq[index - KMER_LENGTH:index]
-                seq_out = seq[index]
-                processed_data.append([[char_to_int[char] for char in seq_in], char_to_int[seq_out]])
-
-        return processed_data
+    # Number of classes is based on the data, so update at runtime
+    global NUM_CLASSES
+    NUM_CLASSES = len(char_to_int)
     
-    test_data = convert_raw_to_processed_data(raw_test_data)
-    training_data = convert_raw_to_processed_data(raw_training_data)
+    # Extract all input_output pairs from all sequences
+    input_output_pairs = []
+    for seq in sequences:
+        for index in range(KMER_LENGTH, len(seq)):
+            seq_in = seq[index - KMER_LENGTH:index]
+            seq_out = seq[index]
+            input_output_pairs.append([[char_to_int[char] for char in seq_in], char_to_int[seq_out]])
 
-    # Shuffle the training data so we can split randomly into validation / training
-    # FIXME: Do we need to shuffle again?
-    random.shuffle(training_data)
+    # Shuffle the input / output pairs so there's no bias when we split the dataset
+    random.shuffle(input_output_pairs)
 
-    # Split training set into validation set based on validation_percent
-    validation_threshold = int(VALIDATION_PERCENT * len(training_data))
-    validation_data = training_data[:validation_threshold]
-    training_data = training_data[validation_threshold:]
+    # Determine indices to use to split randomized data into training/validation/test sets
+    trainInx = int(TRAINING_SPLIT * len(input_output_pairs))
+    validInx = int((VALIDATION_SPLIT + TRAINING_SPLIT) * len(input_output_pairs))
 
     # Convert lists of lists to appropriate data structure complete with any necessary preprocessing
-    trainX, trainY = preprocess_data(training_data)
-    testX, testY = preprocess_data(test_data)
-    validX, validY = preprocess_data(validation_data)
+    trainX, trainY = preprocess_data(input_output_pairs[:trainInx])
+    validX, validY = preprocess_data(input_output_pairs[trainInx: validInx])
+    testX, testY = preprocess_data(input_output_pairs[validInx:])
 
     # create the model
     model = Sequential()
     model.add(Conv1D(FIRST_CONV_FILTERS, FIRST_CONV_KERNEL_SIZE))
+    # model.add(Bidirectional(LSTM(NUM_LSTM_LAYERS), input_shape=(trainX.shape[1], trainX.shape[2])))
     model.add(LSTM(NUM_LSTM_LAYERS, input_shape=(trainX.shape[1], trainX.shape[2])))
     model.add(Dense(FIRST_DENSE_LAYER, activation=HIDDEN_LAYER_ACTIVATION_FUNC))
     model.add(Dense(SECOND_DENSE_LAYER, activation=HIDDEN_LAYER_ACTIVATION_FUNC))
@@ -261,6 +256,7 @@ def main():
     secs_to_train = int(end - start)
 
     _, accuracy = model.evaluate(testX, testY, verbose=0)
+    print(f"accuracy: {accuracy:.2f}")
     save_result(f"{accuracy:.2f}", history.history, model, secs_to_train)
 
 if __name__ == "__main__":
