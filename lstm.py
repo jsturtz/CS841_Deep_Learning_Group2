@@ -1,3 +1,5 @@
+
+import functools
 import json
 import numpy as np
 import random
@@ -6,7 +8,7 @@ import time
 from datetime import datetime
 
 from keras.models import Sequential
-from keras.layers import Dense, LSTM, Conv1D, Bidirectional
+from keras.layers import Dense, LSTM, Conv1D, Bidirectional, Embedding, MaxPooling1D
 from keras.utils import np_utils
 from matplotlib import pyplot as plt
 from matplotlib.ticker import MaxNLocator
@@ -27,10 +29,10 @@ np.random.seed(7)
 RESULTS_PATH = os.path.join(os.getcwd(), "results")
 
 # Model parameters
-KMER_LENGTH = 20
-MAX_EPOCH_LENGTH = 100
+KMER_LENGTH = 10
+MAX_EPOCH_LENGTH = 30
 EMBEDDING_DIM = 128
-NUM_LSTM_LAYERS = 512
+NUM_LSTM_LAYERS = 256
 FIRST_CONV_FILTERS = 128
 FIRST_CONV_KERNEL_SIZE = 5
 FIRST_DENSE_LAYER = 128
@@ -42,7 +44,8 @@ HIDDEN_LAYER_ACTIVATION_FUNC = "relu"
 TRAINING_SPLIT = 0.8
 TEST_SPLIT = 0.1
 VALIDATION_SPLIT = 0.1
-PATIENCE_THRESHOLD = 20
+PATIENCE_THRESHOLD = 10
+POOL_SIZE = 2
 NUM_CLASSES = None
 
 # =============================================================================
@@ -196,16 +199,56 @@ def preprocess_data(dataset):
     return dataX, dataY
 
 # =============================================================================
+def predict_gaps(seq, model, kmer_length, char_to_int_mapping, int_to_char_mapping, gap_char="-"):
+
+    # Convert to mutable object, e.g. list
+    predicted_seq = list(seq)
+
+    for index, output_char in enumerate(predicted_seq):
+        if index > kmer_length and output_char == gap_char:
+
+            # FIXME: Since this exactly copies the preprocessing we do on all the elements in our
+            # training/validation/testing data, it should be its own function to avoid code dup
+            input_seq = predicted_seq[index - kmer_length:index]
+            input_seq = np.array([char_to_int_mapping[c] for c in input_seq])
+            input_seq = input_seq / float(NUM_CLASSES)
+            input_seq = np.reshape(input_seq, (1, KMER_LENGTH, 1))
+
+            # Our output array is a probability distribution since we use softmax activation
+            # So, we have to acquire the largest probability to determine the class
+            output_arr = model.predict(input_seq).flatten()
+            highest_probability_index = np.where(output_arr == np.amax(output_arr))[0][0]
+
+            # Convert that integer back into the predicted character
+            predicted_char = int_to_char_mapping[highest_probability_index]
+            predicted_seq[index] = predicted_char
+
+    # Convert back to a single string when finished
+    return functools.reduce(lambda a, b: a+b, predicted_seq)
+
+# =============================================================================
+def print_sequence(seq, header=""):
+    if header:
+        print(header)
+    print("=====================================================================")
+    line_length = 50
+    group_length = 10
+    lines = [seq[begin:begin+line_length] for begin in range(0, len(seq), line_length)]
+    for line in lines:
+        groups = [line[begin:begin+group_length] for begin in range(0, len(line), group_length)]
+        print("\t".join(groups))
+
+# =============================================================================
 def main():
 
     # Get raw data, create mapping of characters to integers
     with open("alemtuzumab_sequences.txt", "r") as input_file:
         sequences = [seq.split("\n") for seq in input_file.read().split(">") if seq]
-        # names_to_sequences = {name.replace(":", "").replace("|", ""): "".join(parts).strip() for name, *parts in sequences}
         sequences = ["".join(parts).strip() for _, *parts in sequences]
 
     all_chars = set("".join(sequences))
     char_to_int = {c: i for i, c in enumerate(all_chars)}
+    int_to_char = {v: k for k, v in char_to_int.items()}
 
     # Number of classes is based on the data, so update at runtime
     global NUM_CLASSES
@@ -233,12 +276,8 @@ def main():
 
     # create the model
     model = Sequential()
-    model.add(Conv1D(FIRST_CONV_FILTERS, FIRST_CONV_KERNEL_SIZE))
-    # model.add(Bidirectional(LSTM(NUM_LSTM_LAYERS), input_shape=(trainX.shape[1], trainX.shape[2])))
     model.add(LSTM(NUM_LSTM_LAYERS, input_shape=(trainX.shape[1], trainX.shape[2])))
-    model.add(Dense(FIRST_DENSE_LAYER, activation=HIDDEN_LAYER_ACTIVATION_FUNC))
-    model.add(Dense(SECOND_DENSE_LAYER, activation=HIDDEN_LAYER_ACTIVATION_FUNC))
-    model.add(Dense(trainY.shape[1], activation=OUTPUT_ACTIVATION_FUNC))
+    model.add(Dense(NUM_CLASSES, activation=OUTPUT_ACTIVATION_FUNC))
     model.compile(loss=COST_FUNC, optimizer=OPTIMIZER, metrics=['accuracy'])
 
     # fit the data, summarize performance of the model
@@ -258,6 +297,23 @@ def main():
     _, accuracy = model.evaluate(testX, testY, verbose=0)
     print(f"accuracy: {accuracy:.2f}")
     save_result(f"{accuracy:.2f}", history.history, model, secs_to_train)
+
+    # For funsies, use the model to predict the gaps in the de novo sequence
+    target_sequence = "DIQMTQSPSSLSASVGDRVTITCKASQNIDKYLNWYQQKPGKAPKLLIYNTNNLQTGVPSRFSGSGSGTDFTFTISSLQPEDIATYYCLQHISRPRTFGQGTKVEIKRTVAAPSVFIFPPSDEQLKSGTASVVCLLNNFYPREAKVQWKVDNALQSGNSQESVTEQDSKDSTYSLSSTLTLSKADYEKHKVYACEVTHQGLSSPVTKSFNRGEC"
+    missing_indices = set([0, 1, 2, 24, 25, 26, 62, 63, 64, 66, 67, 68, 69, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 209, 210, 211, 212, 213])
+
+    # FIXME: We can't predict in the reverse direction for now
+    missing_indices = set(item for item in missing_indices if item > KMER_LENGTH)
+    de_novo_sequence = "".join(c if i not in missing_indices else "-" for i, c in enumerate(target_sequence))
+
+    predicted_sequence = predict_gaps(de_novo_sequence, model, KMER_LENGTH, char_to_int, int_to_char, gap_char="-")
+
+    print_sequence(target_sequence, "TARGET SEQUENCE")
+    print_sequence(predicted_sequence, "PREDICTED SEQUENCE")
+
+    num_correct_gaps = sum(1 if c1 == c2 and index in missing_indices else 0 for index, (c1, c2) in enumerate(zip(predicted_sequence, target_sequence)))
+    gaps_to_predict = len(missing_indices)
+    print(f"Accuracy on De Novo Sequence: {num_correct_gaps / gaps_to_predict}")
 
 if __name__ == "__main__":
     main()
