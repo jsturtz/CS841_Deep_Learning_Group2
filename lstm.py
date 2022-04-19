@@ -6,6 +6,7 @@ import random
 import os
 import time
 from datetime import datetime
+import sys
 
 from keras.models import Sequential
 from keras.layers import Dense, LSTM, Conv1D, Bidirectional, Embedding, MaxPooling1D
@@ -41,12 +42,10 @@ COST_FUNC = "categorical_crossentropy"
 OPTIMIZER = "adam"
 OUTPUT_ACTIVATION_FUNC = "softmax"
 HIDDEN_LAYER_ACTIVATION_FUNC = "relu"
-TRAINING_SPLIT = 0.8
-TEST_SPLIT = 0.1
-VALIDATION_SPLIT = 0.1
+VALIDATION_PERCENT = 0.1
 PATIENCE_THRESHOLD = 10
 POOL_SIZE = 2
-NUM_CLASSES = None
+NUM_CLASSES = -1
 
 # =============================================================================
 # FUNCTIONS START HERE
@@ -102,7 +101,7 @@ def save_result(test_accuracy, history, model, secs_to_train):
         "max_epoch_length": MAX_EPOCH_LENGTH,
         "embedding_dim": EMBEDDING_DIM,
         "num_lstm_layers": NUM_LSTM_LAYERS,
-        "first_conv_filters": FIRST_CONV_FILTERS, 
+        "first_conv_filters": FIRST_CONV_FILTERS,
         "first_conv_kernel_size": FIRST_CONV_KERNEL_SIZE,
         "first_dense_layer": FIRST_DENSE_LAYER,
         "second_dense_layer": SECOND_DENSE_LAYER,
@@ -110,7 +109,7 @@ def save_result(test_accuracy, history, model, secs_to_train):
         "optimizer": OPTIMIZER,
         "output_activation_func": OUTPUT_ACTIVATION_FUNC,
         "hidden_layer_activation_func": HIDDEN_LAYER_ACTIVATION_FUNC,
-        "training/validation/test split": f"{int(TRAINING_SPLIT * 100)}/{int(VALIDATION_SPLIT* 100)}/{int(TEST_SPLIT * 100)}",
+        # "training/validation/test split": f"{int(TRAINING_SPLIT * 100)}/{int(VALIDATION_SPLIT* 100)}/{int(TEST_SPLIT * 100)}",
         "patience_threshold": PATIENCE_THRESHOLD,
         "num_classes": NUM_CLASSES,
     }
@@ -179,15 +178,30 @@ class ReportPatience(Callback):
         logs["epochs_to_patience"] = (epoch, self.current_patience)
 
 # =============================================================================
-def preprocess_data(dataset):
+def generate_input_output_pairs(sequence, kmer_length):
+
+    # Extract all input_output pairs from all sequences
+    input_output_pairs = []
+    for seq in sequence:
+        for index in range(kmer_length, len(seq)):
+            seq_in = seq[index - kmer_length:index]
+            seq_out = seq[index]
+            input_output_pairs.append((seq_in, seq_out))
+
+    return input_output_pairs
+
+# =============================================================================
+def preprocess_data(dataset, char_to_int):
     """
     Preprocesses raw dataset and returns tuple (dataX, dataY)
     """
+
+    # First, convert the raw strings to integers
     input_as_lst = []
     output_as_lst = []
     for inp, out in dataset:
-        input_as_lst.append(inp)
-        output_as_lst.append(out)
+        input_as_lst.append([char_to_int[c] for c in inp])
+        output_as_lst.append(char_to_int[out])
 
     # reshape X to be [samples, time steps, features], normalize
     dataX = np.reshape(input_as_lst, (len(input_as_lst), KMER_LENGTH, 1))
@@ -246,6 +260,8 @@ def main():
         sequences = [seq.split("\n") for seq in input_file.read().split(">") if seq]
         sequences = ["".join(parts).strip() for _, *parts in sequences]
 
+    target_sequence, *training_sequences = sequences
+
     all_chars = set("".join(sequences))
     char_to_int = {c: i for i, c in enumerate(all_chars)}
     int_to_char = {v: k for k, v in char_to_int.items()}
@@ -253,26 +269,20 @@ def main():
     # Number of classes is based on the data, so update at runtime
     global NUM_CLASSES
     NUM_CLASSES = len(char_to_int)
-    
-    # Extract all input_output pairs from all sequences
-    input_output_pairs = []
-    for seq in sequences:
-        for index in range(KMER_LENGTH, len(seq)):
-            seq_in = seq[index - KMER_LENGTH:index]
-            seq_out = seq[index]
-            input_output_pairs.append([[char_to_int[char] for char in seq_in], char_to_int[seq_out]])
 
-    # Shuffle the input / output pairs so there's no bias when we split the dataset
-    random.shuffle(input_output_pairs)
+    training_pairs = generate_input_output_pairs(training_sequences, KMER_LENGTH)
+    testing_pairs = generate_input_output_pairs(target_sequence, KMER_LENGTH)
+
+    # Shuffle the training data so no bias is introduced when splitting for validation
+    np.random.shuffle(training_pairs)
 
     # Determine indices to use to split randomized data into training/validation/test sets
-    trainInx = int(TRAINING_SPLIT * len(input_output_pairs))
-    validInx = int((VALIDATION_SPLIT + TRAINING_SPLIT) * len(input_output_pairs))
+    validation_threshold = int(VALIDATION_PERCENT * len(training_pairs))
 
     # Convert lists of lists to appropriate data structure complete with any necessary preprocessing
-    trainX, trainY = preprocess_data(input_output_pairs[:trainInx])
-    validX, validY = preprocess_data(input_output_pairs[trainInx: validInx])
-    testX, testY = preprocess_data(input_output_pairs[validInx:])
+    trainX, trainY = preprocess_data(training_pairs[validation_threshold:], char_to_int)
+    validX, validY = preprocess_data(training_pairs[:validation_threshold], char_to_int)
+    testX, testY = preprocess_data(testing_pairs, char_to_int)
 
     # create the model
     model = Sequential()
@@ -283,12 +293,12 @@ def main():
     # fit the data, summarize performance of the model
     start = time.time()
     history = model.fit(
-        trainX, 
-        trainY, 
-        epochs=MAX_EPOCH_LENGTH, 
-        batch_size=1, 
-        verbose=2, 
-        validation_data=(validX, validY), 
+        trainX,
+        trainY,
+        epochs=MAX_EPOCH_LENGTH,
+        batch_size=1,
+        verbose=2,
+        validation_data=(validX, validY),
         callbacks = [EarlyStopping(monitor="val_loss", patience=PATIENCE_THRESHOLD), ReportPatience()],
     )
     end = time.time()
@@ -299,7 +309,7 @@ def main():
     save_result(f"{accuracy:.2f}", history.history, model, secs_to_train)
 
     # For funsies, use the model to predict the gaps in the de novo sequence
-    target_sequence = "DIQMTQSPSSLSASVGDRVTITCKASQNIDKYLNWYQQKPGKAPKLLIYNTNNLQTGVPSRFSGSGSGTDFTFTISSLQPEDIATYYCLQHISRPRTFGQGTKVEIKRTVAAPSVFIFPPSDEQLKSGTASVVCLLNNFYPREAKVQWKVDNALQSGNSQESVTEQDSKDSTYSLSSTLTLSKADYEKHKVYACEVTHQGLSSPVTKSFNRGEC"
+    # Make sure target sequence is not in training data
     missing_indices = set([0, 1, 2, 24, 25, 26, 62, 63, 64, 66, 67, 68, 69, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 209, 210, 211, 212, 213])
 
     # FIXME: We can't predict in the reverse direction for now
