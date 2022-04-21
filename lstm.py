@@ -26,15 +26,15 @@ np.random.seed(7)
 # =============================================================================
 
 # Path to save results
-RESULTS_PATH = os.path.join(os.getcwd(), "new_results")
+RESULTS_PATH = os.path.join(os.getcwd(), "new_approach_results")
 
 # Model parameters
-KMER_LENGTH = 10
+KMER_LENGTH = 5
 MAX_EPOCH_LENGTH = 100
 EMBEDDING_DIM = 128
 NUM_LSTM_LAYERS = 256
 FIRST_CONV_FILTERS = 128
-FIRST_CONV_KERNEL_SIZE = 5
+FIRST_CONV_KERNEL_SIZE = 3
 FIRST_DENSE_LAYER = 128
 SECOND_DENSE_LAYER = 64
 COST_FUNC = "categorical_crossentropy"
@@ -42,7 +42,7 @@ OPTIMIZER = "adam"
 OUTPUT_ACTIVATION_FUNC = "softmax"
 HIDDEN_LAYER_ACTIVATION_FUNC = "relu"
 VALIDATION_PERCENT = 0.1
-PATIENCE_THRESHOLD = 100
+PATIENCE_THRESHOLD = 20
 BATCH_SIZE = 64
 POOL_SIZE = 2
 NUM_CLASSES = -1
@@ -141,13 +141,13 @@ def save_result(test_accuracy, history, model, secs_to_train):
     # Note that even in the OO-style, we use `.pyplot.figure` to create the Figure.
     fig, ax = plt.subplots()
     ax.plot(x, y, label='Patience')
-    ax.set_xlabel('Epochs')  # Add an x-label to the axes.
-    ax.set_ylabel('Patience')  # Add a y-label to the axes.
-    ax.set_title(f'Epochs to Patience')  # Add a title to the axes.
+    ax.set_xlabel('Training Epoch')  # Add an x-label to the axes.
+    ax.set_ylabel('Epochs Since Better Loss Discovered')  # Add a y-label to the axes.
+    ax.set_title(f'Epochs Since Better Loss Discovered')  # Add a title to the axes.
     ax.xaxis.set_major_locator(MaxNLocator(integer=True))
     ax.yaxis.set_major_locator(MaxNLocator(integer=True))
     ax.legend();  # Add a legend.
-    fig.savefig(os.path.join(RESULTS_PATH, f"{filename}_patience.png"))
+    fig.savefig(os.path.join(RESULTS_PATH, f"{filename}_epochs_loss.png"))
 
 # =============================================================================
 class ReportPatience(Callback):
@@ -296,8 +296,8 @@ def main():
     model.add(Conv1D(FIRST_CONV_FILTERS, FIRST_CONV_KERNEL_SIZE))
     # model.add(Bidirectional(LSTM(NUM_LSTM_LAYERS), input_shape=(trainX.shape[1], trainX.shape[2])))
     model.add(LSTM(NUM_LSTM_LAYERS, input_shape=(trainX.shape[1], trainX.shape[2])))
-    # model.add(Dense(FIRST_DENSE_LAYER, activation=HIDDEN_LAYER_ACTIVATION_FUNC))
-    # model.add(Dense(SECOND_DENSE_LAYER, activation=HIDDEN_LAYER_ACTIVATION_FUNC))
+    model.add(Dense(FIRST_DENSE_LAYER, activation=HIDDEN_LAYER_ACTIVATION_FUNC))
+    model.add(Dense(SECOND_DENSE_LAYER, activation=HIDDEN_LAYER_ACTIVATION_FUNC))
     model.add(Dense(NUM_CLASSES, activation=OUTPUT_ACTIVATION_FUNC))
     model.compile(loss=COST_FUNC, optimizer=OPTIMIZER, metrics=['accuracy'])
 
