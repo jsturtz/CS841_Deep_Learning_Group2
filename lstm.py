@@ -2,7 +2,6 @@
 import functools
 import json
 import numpy as np
-import random
 import os
 import time
 from datetime import datetime
@@ -27,11 +26,11 @@ np.random.seed(7)
 # =============================================================================
 
 # Path to save results
-RESULTS_PATH = os.path.join(os.getcwd(), "results")
+RESULTS_PATH = os.path.join(os.getcwd(), "new_results")
 
 # Model parameters
 KMER_LENGTH = 10
-MAX_EPOCH_LENGTH = 30
+MAX_EPOCH_LENGTH = 100
 EMBEDDING_DIM = 128
 NUM_LSTM_LAYERS = 256
 FIRST_CONV_FILTERS = 128
@@ -43,7 +42,8 @@ OPTIMIZER = "adam"
 OUTPUT_ACTIVATION_FUNC = "softmax"
 HIDDEN_LAYER_ACTIVATION_FUNC = "relu"
 VALIDATION_PERCENT = 0.1
-PATIENCE_THRESHOLD = 10
+PATIENCE_THRESHOLD = 100
+BATCH_SIZE = 64
 POOL_SIZE = 2
 NUM_CLASSES = -1
 
@@ -112,15 +112,16 @@ def save_result(test_accuracy, history, model, secs_to_train):
         # "training/validation/test split": f"{int(TRAINING_SPLIT * 100)}/{int(VALIDATION_SPLIT* 100)}/{int(TEST_SPLIT * 100)}",
         "patience_threshold": PATIENCE_THRESHOLD,
         "num_classes": NUM_CLASSES,
+        "batch_size": BATCH_SIZE,
     }
 
     result = {
         "test_accuracy": test_accuracy,
         "epochs_actually_trained": epoch_length,
-        "num_trainable_vars": int(np.sum([np.prod(v.get_shape().as_list()) for v in model.trainable_variables])),
+        # "num_trainable_vars": int(np.sum([np.prod(v.get_shape().as_list()) for v in model.trainable_variables])),
         "secs_to_train": secs_to_train,
         "parameters": parameters,
-        "history": history,
+        # "history": history,
     }
 
     path = os.path.join(RESULTS_PATH, f"{filename}_results.json")
@@ -253,25 +254,31 @@ def print_sequence(seq, header=""):
         print("\t".join(groups))
 
 # =============================================================================
-def main():
-
-    # Get raw data, create mapping of characters to integers
-    with open("alemtuzumab_sequences.txt", "r") as input_file:
+def get_sequences(fasta_file):
+    sequences = []
+    with open(fasta_file, "r") as input_file:
         sequences = [seq.split("\n") for seq in input_file.read().split(">") if seq]
         sequences = ["".join(parts).strip() for _, *parts in sequences]
 
-    target_sequence, *training_sequences = sequences
+    return sequences
 
-    all_chars = set("".join(sequences))
+# =============================================================================
+def main():
+
+    training_sequences = get_sequences("training_sequences.txt")
+    target_sequence = get_sequences("target_sequence.txt")[0]
+
+    # extract all chars from all sequences to create our mappings and to determine classes
+    all_chars = set("".join(training_sequences) + target_sequence)
     char_to_int = {c: i for i, c in enumerate(all_chars)}
     int_to_char = {v: k for k, v in char_to_int.items()}
 
     # Number of classes is based on the data, so update at runtime
     global NUM_CLASSES
-    NUM_CLASSES = len(char_to_int)
+    NUM_CLASSES = len(all_chars)
 
     training_pairs = generate_input_output_pairs(training_sequences, KMER_LENGTH)
-    testing_pairs = generate_input_output_pairs(target_sequence, KMER_LENGTH)
+    testing_pairs = generate_input_output_pairs([target_sequence], KMER_LENGTH)
 
     # Shuffle the training data so no bias is introduced when splitting for validation
     np.random.shuffle(training_pairs)
@@ -286,7 +293,11 @@ def main():
 
     # create the model
     model = Sequential()
+    model.add(Conv1D(FIRST_CONV_FILTERS, FIRST_CONV_KERNEL_SIZE))
+    # model.add(Bidirectional(LSTM(NUM_LSTM_LAYERS), input_shape=(trainX.shape[1], trainX.shape[2])))
     model.add(LSTM(NUM_LSTM_LAYERS, input_shape=(trainX.shape[1], trainX.shape[2])))
+    # model.add(Dense(FIRST_DENSE_LAYER, activation=HIDDEN_LAYER_ACTIVATION_FUNC))
+    # model.add(Dense(SECOND_DENSE_LAYER, activation=HIDDEN_LAYER_ACTIVATION_FUNC))
     model.add(Dense(NUM_CLASSES, activation=OUTPUT_ACTIVATION_FUNC))
     model.compile(loss=COST_FUNC, optimizer=OPTIMIZER, metrics=['accuracy'])
 
@@ -296,14 +307,16 @@ def main():
         trainX,
         trainY,
         epochs=MAX_EPOCH_LENGTH,
-        batch_size=1,
+        batch_size=BATCH_SIZE,
         verbose=2,
         validation_data=(validX, validY),
         callbacks = [EarlyStopping(monitor="val_loss", patience=PATIENCE_THRESHOLD), ReportPatience()],
     )
+
     end = time.time()
     secs_to_train = int(end - start)
 
+    model.summary()
     _, accuracy = model.evaluate(testX, testY, verbose=0)
     print(f"accuracy: {accuracy:.2f}")
     save_result(f"{accuracy:.2f}", history.history, model, secs_to_train)
