@@ -182,13 +182,13 @@ class ReportPatience(Callback):
         logs["epochs_to_patience"] = (epoch, self.current_patience)
 
 # =============================================================================
-def generate_input_output_pairs(sequence, kmer_length):
+def generate_input_output_pairs(sequence):
 
     # Extract all input_output pairs from all sequences
     input_output_pairs = []
     for seq in sequence:
-        for start in range(len(seq)-kmer_length):
-            end = start + kmer_length
+        for start in range(len(seq)-KMER_LENGTH):
+            end = start + KMER_LENGTH
             seq_in = seq[start:end]
             seq_out = seq[end]
             input_output_pairs.append((seq_in, seq_out))
@@ -316,10 +316,9 @@ def get_sequences(fasta_file):
     return sequences
 
 # =============================================================================
-def build_model(model_name, training_seqs, target_seq):
+def build_model(training_seqs):
 
-    training_pairs = generate_input_output_pairs(training_seqs, KMER_LENGTH)
-    testing_pairs = generate_input_output_pairs([target_seq], KMER_LENGTH)
+    training_pairs = generate_input_output_pairs(training_seqs)
 
     # Shuffle the training data so no bias is introduced when splitting for validation
     np.random.shuffle(training_pairs)
@@ -330,7 +329,6 @@ def build_model(model_name, training_seqs, target_seq):
     # Convert lists of lists to appropriate data structure complete with any necessary preprocessing
     trainX, trainY = preprocess_data(training_pairs[validation_threshold:])
     validX, validY = preprocess_data(training_pairs[:validation_threshold])
-    testX, testY = preprocess_data(testing_pairs)
 
     # Build model
     inputs = keras.Input(shape=(KMER_LENGTH, 1))
@@ -348,18 +346,16 @@ def build_model(model_name, training_seqs, target_seq):
         validation_data=(validX, validY),
         callbacks = [EarlyStopping(monitor="val_loss", patience=PATIENCE_THRESHOLD), ReportPatience()],
     )
-    model.summary()
-    _, accuracy = model.evaluate(testX, testY)
-    print(f"Accuracy on {model_name}: {accuracy:.2f}")
+    # model.summary()
     return model, history
 
 # =============================================================================
 def main():
 
     training_sequences = get_sequences("training_sequences_10.txt")
-    target_sequence = get_sequences("target_sequence.txt")[0]
-
     training_sequences_reversed = [item[::-1] for item in training_sequences]
+
+    target_sequence = get_sequences("target_sequence.txt")[0]
     target_sequence_reversed = target_sequence[::-1]
 
     # extract all chars from all sequences to create our mappings and to determine classes
@@ -371,10 +367,22 @@ def main():
     CHAR_TO_INT = {c: i for i, c in enumerate(all_chars)}
     INT_TO_CHAR = {v: k for k, v in CHAR_TO_INT.items()}
 
-    forward_model, _ = build_model('FORWARD', training_sequences, target_sequence)
-    reverse_model, _ = build_model('REVERSE', training_sequences_reversed, target_sequence_reversed)
+    forward_model, _ = build_model(training_sequences)
+    reverse_model, _ = build_model(training_sequences_reversed)
 
-    # Now deploy the model on a test example
+    # Forward model is trained on forward data, tested on forward data
+    testing_pairs = generate_input_output_pairs([target_sequence])
+    testX, testY = preprocess_data(testing_pairs)
+    _, accuracy = forward_model.evaluate(testX, testY)
+    print(f"Accuracy on Forward Model: {accuracy:.2f}")
+
+    # Reverse model is trained on reverse data, tested on reverse data
+    testing_pairs = generate_input_output_pairs([target_sequence_reversed])
+    testX, testY = preprocess_data(testing_pairs)
+    _, accuracy = reverse_model.evaluate(testX, testY)
+    print(f"Accuracy on Reverse Model: {accuracy:.2f}")
+
+    # Now use both models to predict a de novo sequence based on target sequence
     missing_indices = set([0, 1, 2, 24, 25, 26, 62, 63, 64, 66, 67, 68, 69, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 209, 210, 211, 212, 213])
     de_novo_sequence = "".join(c if i not in missing_indices else "-" for i, c in enumerate(target_sequence))
 
