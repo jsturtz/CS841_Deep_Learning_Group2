@@ -223,6 +223,9 @@ def get_sequence_predictions(model, seq, gap_char):
     # Characters that already exist have a probability of 1. Until gaps are filled, their probability is 0
     predictions_probabilities = [(c, 1 if c != gap_char else 0) for c in seq]
 
+    if not model:
+        return predictions_probabilities
+
     for start in range(len(seq) - KMER_LENGTH):
         end = start+KMER_LENGTH
         # Only if we have a gap, do we need to update predictions_probabilities
@@ -243,7 +246,7 @@ def get_sequence_predictions(model, seq, gap_char):
     return predictions_probabilities
 
 # =============================================================================
-def predict_gaps(seq, forward_model, reverse_model, gap_char="-"):
+def predict_gaps(seq, forward_model=None, reverse_model=None, gap_char="-"):
 
     forward_preds = get_sequence_predictions(forward_model, seq, gap_char)
     reverse_preds = get_sequence_predictions(reverse_model, seq[::-1], gap_char)
@@ -387,17 +390,29 @@ def main():
     de_novo_sequence = "".join(c if i not in missing_indices else "-" for i, c in enumerate(target_sequence))
 
     pred_sequence_full = predict_gaps(de_novo_sequence, forward_model, reverse_model)
-    full_incorrect = get_nonmatching_indices(target_sequence, pred_sequence_full)
+    incorrect_indices = get_nonmatching_indices(target_sequence, pred_sequence_full)
+    correct_indices = missing_indices.difference(incorrect_indices)
 
     # Print the three different sequences for visual inspection
     print_sequence(target_sequence, "TARGET SEQUENCE")
     print_sequence(de_novo_sequence,"DE NOVO SEQUENCE", missing_indices)
-    print_sequence(pred_sequence_full, "PREDICTED SEQUENCE FULL", full_incorrect, missing_indices)
+    print_sequence(pred_sequence_full, "PREDICTED SEQUENCE", incorrect_indices, correct_indices)
 
     # Compute final accuracy on de novo sequence
     target_len = len(target_sequence)
-    full_accuracy = (target_len - len(full_incorrect)) / target_len
+    full_accuracy = (target_len - len(incorrect_indices)) / target_len
     print(f"Accuracy on De Novo Sequence: {full_accuracy}")
+
+    # Print the predictions in forward and reverse directions as well
+    forward_pred = predict_gaps(de_novo_sequence, forward_model=forward_model, reverse_model=None)
+    incorrect_indices = get_nonmatching_indices(target_sequence, forward_pred)
+    correct_indices = missing_indices.difference(incorrect_indices)
+    print_sequence(forward_pred, "FORWARD PREDICTIONS", incorrect_indices, correct_indices)
+
+    forward_pred = predict_gaps(de_novo_sequence, forward_model=None, reverse_model=reverse_model)
+    incorrect_indices = get_nonmatching_indices(target_sequence, forward_pred)
+    correct_indices = missing_indices.difference(incorrect_indices)
+    print_sequence(forward_pred, "REVERSE PREDICTIONS", incorrect_indices, correct_indices)
 
 if __name__ == "__main__":
     main()
