@@ -268,12 +268,12 @@ def highlight_indices(seq, indices, color):
     seq = list(seq)
     for i, char in enumerate(seq):
         if i in indices:
-            seq[i] = f"{color}{char}{bcolors.ENDC}"
+            seq[i] = f"{bcolors.BOLD}{color}{char}{bcolors.ENDC}"
 
     return functools.reduce(lambda a, b: a+b, seq)
 
 # =============================================================================
-def print_sequence(seq, header=None, indices_to_highlight=None):
+def print_sequence(seq, header=None, incorrect_indices=None, correct_indices=None):
 
     line_length = 40
     group_length = 10
@@ -286,16 +286,23 @@ def print_sequence(seq, header=None, indices_to_highlight=None):
     for line_num, line in enumerate(lines):
 
         groups = [line[begin:begin+group_length] for begin in range(0, len(line), group_length)]
-        if indices_to_highlight:
 
-            # FIXME: I hate this shit so much. Figure out a more elegant solution
-            for group_num, group in enumerate(groups):
-                start_group_index = line_num * line_length + group_num * group_length
-                group_indices = range(start_group_index, start_group_index + group_length)
-                missing_group_indices = indices_to_highlight.intersection(group_indices)
-                missing_group_indices = set([item - start_group_index for item in missing_group_indices])
+        # FIXME: I hate this shit so much. Figure out a more elegant solution
+        for group_num, group in enumerate(groups):
+            start_group_index = line_num * line_length + group_num * group_length
+            group_indices = range(start_group_index, start_group_index + group_length)
 
-                groups[group_num] = highlight_indices(group, missing_group_indices, bcolors.FAIL)
+            if incorrect_indices:
+                fail_indices = incorrect_indices.intersection(group_indices)
+                fail_indices = set([item - start_group_index for item in fail_indices])
+                group = highlight_indices(group, fail_indices, bcolors.FAIL)
+
+            if correct_indices:
+                success_indices = correct_indices.intersection(group_indices)
+                success_indices = set([item - start_group_index for item in success_indices])
+                group = highlight_indices(group, success_indices, bcolors.OKBLUE)
+
+            groups[group_num] = group
 
         print("\t".join(groups))
 
@@ -377,7 +384,7 @@ def main():
     # Print the three different sequences for visual inspection
     print_sequence(target_sequence, "TARGET SEQUENCE")
     print_sequence(de_novo_sequence,"DE NOVO SEQUENCE", missing_indices)
-    print_sequence(pred_sequence_full, "PREDICTED SEQUENCE FULL", full_incorrect)
+    print_sequence(pred_sequence_full, "PREDICTED SEQUENCE FULL", full_incorrect, missing_indices)
 
     # Compute final accuracy on de novo sequence
     target_len = len(target_sequence)
