@@ -1,26 +1,16 @@
 
 import functools
 import json
-from this import d
-from turtle import forward
-from unicodedata import bidirectional
 import numpy as np
 import os
-import time
 from datetime import datetime
-import sys
 
 from keras.models import Sequential
-
-# TESTING FUNCTIONAL API
-# from keras.layers import Dense, LSTM, Conv1D, Bidirectional, Embedding, MaxPooling1D, Input
 from tensorflow import keras
 from tensorflow.keras import layers
-
 from keras.utils import np_utils
 from matplotlib import pyplot as plt
 from matplotlib.ticker import MaxNLocator
-from pygments import highlight
 from tensorflow.keras.callbacks import EarlyStopping
 from tensorflow.keras.callbacks import Callback
 
@@ -57,6 +47,8 @@ PATIENCE_THRESHOLD = 20
 BATCH_SIZE = 64
 POOL_SIZE = 2
 NUM_CLASSES = -1
+CHAR_TO_INT = {}
+INT_TO_CHAR = {}
 
 # =============================================================================
 # FUNCTIONS START HERE
@@ -201,15 +193,10 @@ def generate_input_output_pairs(sequence, kmer_length):
             seq_out = seq[end]
             input_output_pairs.append((seq_in, seq_out))
 
-            # FIXME: Testing whether it's better to add reversed data?
-            seq_in = seq[end:start:-1]
-            seq_out = seq[start]
-            input_output_pairs.append((seq_in, seq_out))
-
     return input_output_pairs
 
 # =============================================================================
-def preprocess_data(dataset, char_to_int):
+def preprocess_data(dataset):
     """
     Preprocesses raw dataset and returns tuple (dataX, dataY)
     """
@@ -218,8 +205,8 @@ def preprocess_data(dataset, char_to_int):
     input_as_lst = []
     output_as_lst = []
     for inp, out in dataset:
-        input_as_lst.append([char_to_int[c] for c in inp])
-        output_as_lst.append(char_to_int[out])
+        input_as_lst.append([CHAR_TO_INT[c] for c in inp])
+        output_as_lst.append(CHAR_TO_INT[out])
 
     # reshape X to be [samples, time steps, features], normalize
     dataX = np.reshape(input_as_lst, (len(input_as_lst), KMER_LENGTH, 1))
@@ -231,49 +218,42 @@ def preprocess_data(dataset, char_to_int):
     return dataX, dataY
 
 # =============================================================================
-def predict_gaps(seq, model, kmer_length, char_to_int_mapping, int_to_char_mapping, gap_char="-"):
+def get_sequence_predictions(model, seq, gap_char):
 
-    # Convert to mutable object, e.g. list
-    predicted_seq = list(seq)
+    # Characters that already exist have a probability of 1. Until gaps are filled, their probability is 0
+    predictions_probabilities = [(c, 1 if c != gap_char else 0) for c in seq]
 
-    for index, output_char in enumerate(predicted_seq):
-        if index > kmer_length and output_char == gap_char:
-
-            # FIXME: Since this exactly copies the preprocessing we do on all the elements in our
-            # training/validation/testing data, it should be its own function to avoid code dup
-            input_seq = predicted_seq[index - kmer_length:index]
-            input_seq = np.array([char_to_int_mapping[c] for c in input_seq])
+    for start in range(len(seq) - KMER_LENGTH):
+        end = start+KMER_LENGTH
+        # Only if we have a gap, do we need to update predictions_probabilities
+        if seq[end] == gap_char:
+            input_seq = [c for c, _ in predictions_probabilities[start:end]]
+            input_seq = np.array([CHAR_TO_INT[c] for c in input_seq])
             input_seq = input_seq / float(NUM_CLASSES)
             input_seq = np.reshape(input_seq, (1, KMER_LENGTH, 1))
 
-            # Our output array is a probability distribution since we use softmax activation
-            # So, we have to acquire the largest probability to determine the class
             output_arr = model.predict(input_seq).flatten()
-            highest_probability_index = np.where(output_arr == np.amax(output_arr))[0][0]
+            highest_probability = np.amax(output_arr)
+            output_class = np.where(output_arr == highest_probability)[0][0]
 
-            # Convert that integer back into the predicted character
-            predicted_char = int_to_char_mapping[highest_probability_index]
-            predicted_seq[index] = predicted_char
+            # Convert the output class integer back into the predicted character
+            predicted_char = INT_TO_CHAR[output_class]
+            predictions_probabilities[end] = (predicted_char, highest_probability)
 
-    # Convert back to a single string when finished
-    return functools.reduce(lambda a, b: a+b, predicted_seq)
+    return predictions_probabilities
 
 # =============================================================================
-def predict_gaps_both_directions(seq, model, kmer_length, char_to_int_mapping, int_to_char_mapping, gap_char="-"):
+def predict_gaps(seq, forward_model, reverse_model, gap_char="-"):
 
-    forward_seq = predict_gaps(seq, model, kmer_length, char_to_int_mapping, int_to_char_mapping, gap_char)
-    reverse_seq = predict_gaps(seq[::-1], model, kmer_length, char_to_int_mapping, int_to_char_mapping, gap_char)
+    forward_preds = get_sequence_predictions(forward_model, seq, gap_char)
+    reverse_preds = get_sequence_predictions(reverse_model, seq[::-1], gap_char)
 
-    full_seq = []
-    for forward_pred, reverse_pred in zip(forward_seq, reverse_seq[::-1]):
-        # FIXME: I guess just default to the forward prediction unless missing? IDK
-        if forward_pred == gap_char:
-            full_seq.append(reverse_pred)
-        else:
-            full_seq.append(forward_pred)
+    predicted_seq = ""
+    for ((forward_pred, forward_prob), (reverse_pred, reverse_prob)) in zip(forward_preds, reverse_preds[::-1]):
+        best_prediction = forward_pred if forward_prob >= reverse_prob else reverse_pred
+        predicted_seq += best_prediction
 
-    # Convert back to a single string when finished
-    return functools.reduce(lambda a, b: a+b, full_seq)
+    return predicted_seq
 
 # =============================================================================
 def get_nonmatching_indices(seq1, seq2):
@@ -329,39 +309,10 @@ def get_sequences(fasta_file):
     return sequences
 
 # =============================================================================
-def compute_accuracy(seq1, seq2, ignore_first=None):
-    '''
-    Very simple way of measuring accuracy according to matching indices
-    Assumes seq1 and seq2 have the same length
-    ignore_first optional argument to ignore comparing first N characters
-    '''
-    if len(seq1) != len(seq2):
-        raise Exception("Dumbass, they need to be the same length!")
+def build_model(model_name, training_seqs, target_seq):
 
-    if ignore_first:
-        seq1 = seq1[ignore_first:]
-        seq2 = seq2[ignore_first:]
-    return sum(1 if c1 == c2 else 0 for c1, c2 in zip(seq1, seq2)) / len(seq1)
-
-# =============================================================================
-def main():
-
-    training_sequences = get_sequences("training_sequences_10.txt")
-    target_sequence = get_sequences("target_sequence.txt")[0]
-    target_sequence_reversed = target_sequence[::-1]
-
-    # extract all chars from all sequences to create our mappings and to determine classes
-    all_chars = set("".join(training_sequences) + target_sequence)
-    char_to_int = {c: i for i, c in enumerate(all_chars)}
-    int_to_char = {v: k for k, v in char_to_int.items()}
-
-    # Number of classes is based on the data, so update at runtime
-    global NUM_CLASSES
-    NUM_CLASSES = len(all_chars)
-
-    training_pairs = generate_input_output_pairs(training_sequences, KMER_LENGTH)
-    testing_pairs = generate_input_output_pairs([target_sequence], KMER_LENGTH)
-    testing_pairs_reversed = generate_input_output_pairs([target_sequence_reversed], KMER_LENGTH)
+    training_pairs = generate_input_output_pairs(training_seqs, KMER_LENGTH)
+    testing_pairs = generate_input_output_pairs([target_seq], KMER_LENGTH)
 
     # Shuffle the training data so no bias is introduced when splitting for validation
     np.random.shuffle(training_pairs)
@@ -370,43 +321,17 @@ def main():
     validation_threshold = int(VALIDATION_PERCENT * len(training_pairs))
 
     # Convert lists of lists to appropriate data structure complete with any necessary preprocessing
-    trainX, trainY = preprocess_data(training_pairs[validation_threshold:], char_to_int)
-    validX, validY = preprocess_data(training_pairs[:validation_threshold], char_to_int)
-    testX, testY = preprocess_data(testing_pairs, char_to_int)
-    testX_rev, testY_rev = preprocess_data(testing_pairs_reversed, char_to_int)
+    trainX, trainY = preprocess_data(training_pairs[validation_threshold:])
+    validX, validY = preprocess_data(training_pairs[:validation_threshold])
+    testX, testY = preprocess_data(testing_pairs)
 
-    print(trainX.shape)
-    print(trainY.shape)
-    # create the model
-    # model = Sequential()
-    # model.add(Conv1D(FIRST_CONV_FILTERS, FIRST_CONV_KERNEL_SIZE))
-    # model.add(Bidirectional(LSTM(NUM_LSTM_LAYERS, return_sequences=True), input_shape=(trainX.shape[1], trainX.shape[2])))
-    # # model.add(LSTM(NUM_LSTM_LAYERS, input_shape=(trainX.shape[1], trainX.shape[2])))
-    # model.add(Dense(FIRST_DENSE_LAYER, activation=HIDDEN_LAYER_ACTIVATION_FUNC))
-    # model.add(Dense(SECOND_DENSE_LAYER, activation=HIDDEN_LAYER_ACTIVATION_FUNC))
-    # model.add(Dense(NUM_CLASSES, activation=OUTPUT_ACTIVATION_FUNC))
-    # model.compile(loss=COST_FUNC, optimizer=OPTIMIZER, metrics=['accuracy'])
-
-    # FIXME: Is the right way to train on just the forward data, or to create the
-    # reverse data and train on that? If I don't create the reverse data, the bidirectional
-    # does not perform well predicting reversed sequences. But if I do train on the reversed
-    # Data, the accuracy is high regardless of what tweaks I make to the model.
-    # I.e. the bidirectional does not seem to help much
-
+    # Build model
     inputs = keras.Input(shape=(KMER_LENGTH, 1))
     outputs = layers.LSTM(NUM_LSTM_LAYERS)(inputs)
-    # outputs = layers.Conv1D(FIRST_CONV_FILTERS, FIRST_CONV_KERNEL_SIZE)(inputs)
-    # outputs = layers.LSTM(NUM_LSTM_LAYERS)(outputs)
-    # outputs = layers.Bidirectional(layers.LSTM(NUM_LSTM_LAYERS, return_sequences=True))(outputs)
-    # outputs = layers.Bidirectional(layers.LSTM(NUM_LSTM_LAYERS))(outputs)
-    # outputs = layers.Dense(FIRST_DENSE_LAYER, activation=HIDDEN_LAYER_ACTIVATION_FUNC)(outputs)
-    # outputs = layers.Dense(SECOND_DENSE_LAYER, activation=HIDDEN_LAYER_ACTIVATION_FUNC)(outputs)
     outputs = layers.Dense(NUM_CLASSES, activation=OUTPUT_ACTIVATION_FUNC)(outputs)
     model = keras.Model(inputs=inputs, outputs=outputs)
     model.compile(loss=COST_FUNC, optimizer=OPTIMIZER, metrics=['accuracy'])
 
-    # fit the data, summarize performance of the model
-    start = time.time()
     history = model.fit(
         trainX,
         trainY,
@@ -416,65 +341,48 @@ def main():
         validation_data=(validX, validY),
         callbacks = [EarlyStopping(monitor="val_loss", patience=PATIENCE_THRESHOLD), ReportPatience()],
     )
-
-    end = time.time()
-    secs_to_train = int(end - start)
-
     model.summary()
-    _, accuracy = model.evaluate(testX, testY, verbose=0)
-    print(f"accuracy: {accuracy:.4f}")
-    # save_result(f"{accuracy:.2f}", history.history, model, secs_to_train)
+    _, accuracy = model.evaluate(testX, testY)
+    print(f"Accuracy on {model_name}: {accuracy:.2f}")
+    return model, history
 
-    _, accuracy = model.evaluate(testX_rev, testY_rev, verbose=0)
-    print(f"accuracy in reverse direction: {accuracy:.4f}")
+# =============================================================================
+def main():
 
-    # For funsies, use the model to predict the gaps in the de novo sequence
-    # Make sure target sequence is not in training data
+    training_sequences = get_sequences("training_sequences_10.txt")
+    target_sequence = get_sequences("target_sequence.txt")[0]
+
+    training_sequences_reversed = [item[::-1] for item in training_sequences]
+    target_sequence_reversed = target_sequence[::-1]
+
+    # extract all chars from all sequences to create our mappings and to determine classes
+    all_chars = set("".join(training_sequences) + target_sequence)
+
+    # These globals must be determined at runtime
+    global NUM_CLASSES, CHAR_TO_INT, INT_TO_CHAR
+    NUM_CLASSES = len(all_chars)
+    CHAR_TO_INT = {c: i for i, c in enumerate(all_chars)}
+    INT_TO_CHAR = {v: k for k, v in CHAR_TO_INT.items()}
+
+    forward_model, _ = build_model('FORWARD', training_sequences, target_sequence)
+    reverse_model, _ = build_model('REVERSE', training_sequences_reversed, target_sequence_reversed)
+
+    # Now deploy the model on a test example
     missing_indices = set([0, 1, 2, 24, 25, 26, 62, 63, 64, 66, 67, 68, 69, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 209, 210, 211, 212, 213])
-
-    # The reversed string has missing indices which are the complement of the forward direction
-    missing_indices_reversed = set([len(target_sequence) - 1 - i for i in missing_indices])
-
     de_novo_sequence = "".join(c if i not in missing_indices else "-" for i, c in enumerate(target_sequence))
-    de_novo_sequence_reversed = de_novo_sequence[::-1]
 
-    print(missing_indices)
-    print(missing_indices_reversed)
-
-    pred_sequence_forward = predict_gaps(de_novo_sequence, model, KMER_LENGTH, char_to_int, int_to_char, gap_char="-")
-    pred_sequence_reverse = predict_gaps(de_novo_sequence_reversed, model, KMER_LENGTH, char_to_int, int_to_char, gap_char="-")
-    pred_sequence_full = predict_gaps_both_directions(de_novo_sequence, model, KMER_LENGTH, char_to_int, int_to_char, gap_char="-")
-
-    forward_incorrect = get_nonmatching_indices(target_sequence, pred_sequence_forward)
-    reverse_incorrect = get_nonmatching_indices(target_sequence_reversed, pred_sequence_reverse)
+    pred_sequence_full = predict_gaps(de_novo_sequence, forward_model, reverse_model)
     full_incorrect = get_nonmatching_indices(target_sequence, pred_sequence_full)
 
-    print("Forward Incorrect: {}".format(forward_incorrect))
-    print("Reverse Incorrect: {}".format(reverse_incorrect))
-    print("Full Incorrect: {}".format(full_incorrect))
-
+    # Print the three different sequences for visual inspection
     print_sequence(target_sequence, "TARGET SEQUENCE")
     print_sequence(de_novo_sequence,"DE NOVO SEQUENCE", missing_indices)
     print_sequence(pred_sequence_full, "PREDICTED SEQUENCE FULL", full_incorrect)
-    print_sequence(pred_sequence_forward, "PREDICTED SEQUENCE FORWARD", forward_incorrect)
 
-    print_sequence(target_sequence_reversed, "TARGET SEQUENCE REVERSE")
-    print_sequence(de_novo_sequence_reversed,"DE NOVO SEQUENCE REVERSE", missing_indices_reversed)
-    print_sequence(pred_sequence_reverse, "PREDICTED SEQUENCE REVERSE", reverse_incorrect)
-
-    # FIXME: Now that I'm taking the effor to tget the nonmatching indices, just use that for accuracy
-    # forward_accuracy = compute_accuracy(pred_sequence_forward, target_sequence, ignore_first=KMER_LENGTH)
-    # reverse_accuracy = compute_accuracy(pred_sequence_reverse, target_sequence[::-1], ignore_first=KMER_LENGTH)
-    # full_accuracy = compute_accuracy(target_sequence, pred_sequence_full)
-
+    # Compute final accuracy on de novo sequence
     target_len = len(target_sequence)
-    forward_accuracy = (target_len - len(forward_incorrect)) / target_len
-    reverse_accuracy = (target_len - len(reverse_incorrect)) / target_len
     full_accuracy = (target_len - len(full_incorrect)) / target_len
-
-    print(f"Accuracy on De Novo Sequence in forward direction: {forward_accuracy}")
-    print(f"Accuracy on De Novo Sequence in reverse direction: {reverse_accuracy}")
-    print(f"Accuracy on De Novo Sequence when combining both: {full_accuracy}")
+    print(f"Accuracy on De Novo Sequence: {full_accuracy}")
 
 if __name__ == "__main__":
     main()
