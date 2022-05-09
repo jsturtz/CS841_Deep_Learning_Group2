@@ -251,6 +251,8 @@
 
     \begin{table}[h!]
       \begin{center}
+        \caption{Comparing Different Model Architectures}
+        \label{tab:model_results}
         \begin{tabular}{l|l|l|l} % <-- Alignments: 1st column left, 2nd middle and 3rd right, with vertical lines in between
           & \textbf{Test Accuracy} & \textbf{Training Loss} & \textbf{Validation Loss}\\
           \hline
@@ -259,8 +261,6 @@
           CNN-LSTM    & $98.56\%$ & $0.0948$ & $0.5604$ \\
           Bi-CNN-LSTM & $99.04\%$ & $0.0884$ & $0.6719$ \\
         \end{tabular}
-        \caption{Comparing Different Model Architectures}
-        \label{tab:model_results}
       \end{center}
     \end{table}
   
@@ -348,7 +348,7 @@
           \textbf{CNN}    & Number of Convolutional Filters  & 128 \\
                           & Convolutional Filter Size        & 3 \\
           \hline
-          \textbf{LSTM}   & Number of LSTM Neurons           & 256 \\
+          \textbf{LSTM}   & Number of LSTM Cells             & 256 \\
         \end{tabular}
       \end{center}
     \end{table}
