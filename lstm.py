@@ -4,8 +4,8 @@ import json
 import numpy as np
 import os
 from datetime import datetime
+from enum import Enum
 
-from keras.models import Sequential
 from tensorflow import keras
 from tensorflow.keras import layers
 from keras.utils import np_utils
@@ -27,7 +27,7 @@ np.random.seed(7)
 # =============================================================================
 
 # Path to save results
-RESULTS_PATH = os.path.join(os.getcwd(), "new_approach_results")
+RESULTS_PATH = os.path.join(os.getcwd(), "new_new_approach_results")
 
 # Model parameters
 KMER_LENGTH = 5
@@ -56,33 +56,44 @@ INT_TO_CHAR = {}
 
 # =============================================================================
 # Save what we want from the results
-def save_result(test_accuracy, history, model, secs_to_train):
+def save_result(title, test_accuracy, history, model, model_type="Default"):
     now = datetime.now().strftime("%H-%M-%S")
     epoch_length = len(history["epochs_to_patience"])
     epoch_axis = list(range(1, epoch_length + 1))
 
-    # Note that even in the OO-style, we use `.pyplot.figure` to create the Figure.
     fig, ax = plt.subplots()
-    ax.plot(epoch_axis, history["accuracy"], label='Training')
-    ax.plot(epoch_axis, history["val_accuracy"], label='Validation')
+    ax.plot(epoch_axis, history["loss"], label='Training')
+    ax.plot(epoch_axis, history["val_loss"], label='Validation')
     ax.set_xlabel('Epochs')  # Add an x-label to the axes.
-    ax.set_ylabel('Accuracy')  # Add a y-label to the axes.
-    ax.set_title(f'Accuracy')  # Add a title to the axes.
+    ax.set_ylabel('Loss')  # Add a y-label to the axes.
+    ax.set_title(f'Loss on {model_type}')  # Add a title to the axes.
     ax.xaxis.set_major_locator(MaxNLocator(integer=True))
 
     ax.legend();  # Add a legend.
-    filename = f"{now}"
+    filename = f"{now}{title}_{model_type}"
+    fig.savefig(os.path.join(RESULTS_PATH, f"{filename}_loss.png"))
+
+    fig, ax = plt.subplots()
+    ax.plot(epoch_axis, history["categorical_accuracy"], label='Training')
+    ax.plot(epoch_axis, history["val_categorical_accuracy"], label='Validation')
+    ax.set_xlabel('Epochs')  # Add an x-label to the axes.
+    ax.set_ylabel('Categorical Accuracy')  # Add a y-label to the axes.
+    ax.set_title(f'Categorical Accuracy on {model_type}')  # Add a title to the axes.
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+
+    ax.legend();  # Add a legend.
     fig.savefig(os.path.join(RESULTS_PATH, f"{filename}_accuracy.png"))
 
+    # FIXME: Figure out a better way to know which params are actually used in a particular run
     parameters = {
         "kmer_length": KMER_LENGTH,
         "max_epoch_length": MAX_EPOCH_LENGTH,
-        "embedding_dim": EMBEDDING_DIM,
+        # "embedding_dim": EMBEDDING_DIM,
         "num_lstm_layers": NUM_LSTM_LAYERS,
-        "first_conv_filters": FIRST_CONV_FILTERS,
-        "first_conv_kernel_size": FIRST_CONV_KERNEL_SIZE,
-        "first_dense_layer": FIRST_DENSE_LAYER,
-        "second_dense_layer": SECOND_DENSE_LAYER,
+        # "first_conv_filters": FIRST_CONV_FILTERS,
+        # "first_conv_kernel_size": FIRST_CONV_KERNEL_SIZE,
+        # "first_dense_layer": FIRST_DENSE_LAYER,
+        # "second_dense_layer": SECOND_DENSE_LAYER,
         "cost_func": COST_FUNC,
         "optimizer": OPTIMIZER,
         "output_activation_func": OUTPUT_ACTIVATION_FUNC,
@@ -94,8 +105,11 @@ def save_result(test_accuracy, history, model, secs_to_train):
 
     result = {
         "test_accuracy": test_accuracy,
+        "val_categorical_accuracy": history["val_categorical_accuracy"][-1],
+        "categorical_accuracy": history["categorical_accuracy"][-1],
+        "loss": history["loss"][-1],
+        "val_loss": history["val_loss"][-1],
         "epochs_actually_trained": epoch_length,
-        "secs_to_train": secs_to_train,
         "parameters": parameters,
     }
 
@@ -108,21 +122,21 @@ def save_result(test_accuracy, history, model, secs_to_train):
         model.summary(print_fn=lambda x: f.write(x + '\n'))
 
     # Used this to print out the epochs to patience, but don't need it all the time
-    x = []
-    y = []
-    for x_item, y_item in history["epochs_to_patience"]:
-        x.append(x_item)
-        y.append(y_item)
-    # Note that even in the OO-style, we use `.pyplot.figure` to create the Figure.
-    fig, ax = plt.subplots()
-    ax.plot(x, y, label='Patience')
-    ax.set_xlabel('Training Epoch')  # Add an x-label to the axes.
-    ax.set_ylabel('Epochs Since Better Loss Discovered')  # Add a y-label to the axes.
-    ax.set_title(f'Epochs Since Better Loss Discovered')  # Add a title to the axes.
-    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
-    ax.yaxis.set_major_locator(MaxNLocator(integer=True))
-    ax.legend();  # Add a legend.
-    fig.savefig(os.path.join(RESULTS_PATH, f"{filename}_epochs_loss.png"))
+    # x = []
+    # y = []
+    # for x_item, y_item in history["epochs_to_patience"]:
+    #     x.append(x_item)
+    #     y.append(y_item)
+    # # Note that even in the OO-style, we use `.pyplot.figure` to create the Figure.
+    # fig, ax = plt.subplots()
+    # ax.plot(x, y, label='Patience')
+    # ax.set_xlabel('Training Epoch')  # Add an x-label to the axes.
+    # ax.set_ylabel('Epochs Since Better Loss Discovered')  # Add a y-label to the axes.
+    # ax.set_title(f'Epochs Since Better Loss Discovered')  # Add a title to the axes.
+    # ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+    # ax.yaxis.set_major_locator(MaxNLocator(integer=True))
+    # ax.legend();  # Add a legend.
+    # fig.savefig(os.path.join(RESULTS_PATH, f"{filename}_epochs_loss.png"))
 
 # =============================================================================
 class ReportPatience(Callback):
@@ -291,7 +305,97 @@ def get_sequences(fasta_file):
     return sequences
 
 # =============================================================================
-def build_model(training_seqs):
+def build_basic_lstm_model():
+    # Build model
+    inputs = keras.Input(shape=(KMER_LENGTH, 1))
+    outputs = layers.LSTM(NUM_LSTM_LAYERS)(inputs)
+    outputs = layers.Dense(NUM_CLASSES, activation=OUTPUT_ACTIVATION_FUNC)(outputs)
+    return (keras.Model(inputs=inputs, outputs=outputs), "Basic LSTM")
+
+# =============================================================================
+def build_lstm_with_dense_layers():
+    # Build model
+    inputs = keras.Input(shape=(KMER_LENGTH, 1))
+    outputs = layers.LSTM(NUM_LSTM_LAYERS)(inputs)
+    outputs = layers.Dense(FIRST_DENSE_LAYER, activation=HIDDEN_LAYER_ACTIVATION_FUNC)(outputs)
+    outputs = layers.Dense(SECOND_DENSE_LAYER, activation=HIDDEN_LAYER_ACTIVATION_FUNC)(outputs)
+    outputs = layers.Dense(NUM_CLASSES, activation=OUTPUT_ACTIVATION_FUNC)(outputs)
+    return (keras.Model(inputs=inputs, outputs=outputs), "LSTM With Dense Layers")
+
+# =============================================================================
+def build_basic_cnn_lstm_model():
+    # Build model
+    inputs = keras.Input(shape=(KMER_LENGTH, 1))
+    outputs = layers.Conv1D(filters=FIRST_CONV_FILTERS, kernel_size=FIRST_CONV_KERNEL_SIZE)(inputs)
+    outputs = layers.LSTM(NUM_LSTM_LAYERS)(outputs)
+    outputs = layers.Dense(NUM_CLASSES, activation=OUTPUT_ACTIVATION_FUNC)(outputs)
+    return (keras.Model(inputs=inputs, outputs=outputs), "Basic CNN LSTM")
+
+# =============================================================================
+def build_cnn_lstm_with_dense_layers():
+    # Build model
+    inputs = keras.Input(shape=(KMER_LENGTH, 1))
+    outputs = layers.Conv1D(filters=FIRST_CONV_FILTERS, kernel_size=FIRST_CONV_KERNEL_SIZE)(inputs)
+    outputs = layers.LSTM(NUM_LSTM_LAYERS)(outputs)
+    outputs = layers.Dense(FIRST_DENSE_LAYER, activation=HIDDEN_LAYER_ACTIVATION_FUNC)(outputs)
+    outputs = layers.Dense(SECOND_DENSE_LAYER, activation=HIDDEN_LAYER_ACTIVATION_FUNC)(outputs)
+    outputs = layers.Dense(NUM_CLASSES, activation=OUTPUT_ACTIVATION_FUNC)(outputs)
+    return (keras.Model(inputs=inputs, outputs=outputs), "CNN LSTM With Dense Layers")
+
+# =============================================================================
+def build_basic_bilstm_model():
+    # Build model
+    inputs = keras.Input(shape=(KMER_LENGTH, 1))
+    outputs = layers.Bidirectional(layers.LSTM(NUM_LSTM_LAYERS))(inputs)
+    outputs = layers.Dense(NUM_CLASSES, activation=OUTPUT_ACTIVATION_FUNC)(outputs)
+    return (keras.Model(inputs=inputs, outputs=outputs), "Basic Bi-LSTM")
+
+# =============================================================================
+def build_bilstm_with_dense_layers():
+    # Build model
+    inputs = keras.Input(shape=(KMER_LENGTH, 1))
+    outputs = layers.Bidirectional(layers.LSTM(NUM_LSTM_LAYERS))(inputs)
+    outputs = layers.Dense(FIRST_DENSE_LAYER, activation=HIDDEN_LAYER_ACTIVATION_FUNC)(outputs)
+    outputs = layers.Dense(SECOND_DENSE_LAYER, activation=HIDDEN_LAYER_ACTIVATION_FUNC)(outputs)
+    outputs = layers.Dense(NUM_CLASSES, activation=OUTPUT_ACTIVATION_FUNC)(outputs)
+    return (keras.Model(inputs=inputs, outputs=outputs), "Bi-LSTM With Dense Layers")
+
+# =============================================================================
+def build_basic_cnn_bilstm_model():
+    # Build model
+    inputs = keras.Input(shape=(KMER_LENGTH, 1))
+    outputs = layers.Conv1D(filters=FIRST_CONV_FILTERS, kernel_size=FIRST_CONV_KERNEL_SIZE)(inputs)
+    outputs = layers.Bidirectional(layers.LSTM(NUM_LSTM_LAYERS))(outputs)
+    outputs = layers.Dense(NUM_CLASSES, activation=OUTPUT_ACTIVATION_FUNC)(outputs)
+    return (keras.Model(inputs=inputs, outputs=outputs), "Basic CNN Bi-LSTM")
+
+# =============================================================================
+def build_cnn_bilstm_with_dense_layers():
+    # Build model
+    inputs = keras.Input(shape=(KMER_LENGTH, 1))
+    outputs = layers.Conv1D(filters=FIRST_CONV_FILTERS, kernel_size=FIRST_CONV_KERNEL_SIZE)(inputs)
+    outputs = layers.Bidirectional(layers.LSTM(NUM_LSTM_LAYERS))(outputs)
+    outputs = layers.Dense(FIRST_DENSE_LAYER, activation=HIDDEN_LAYER_ACTIVATION_FUNC)(outputs)
+    outputs = layers.Dense(SECOND_DENSE_LAYER, activation=HIDDEN_LAYER_ACTIVATION_FUNC)(outputs)
+    outputs = layers.Dense(NUM_CLASSES, activation=OUTPUT_ACTIVATION_FUNC)(outputs)
+    return (keras.Model(inputs=inputs, outputs=outputs), "CNN Bi-LSTM With Dense Layers")
+
+# =============================================================================
+def build_model(training_seqs, model_type):
+
+    model_types = {
+        "basic_lstm": build_basic_lstm_model,
+        "lstm_with_dense_layers": build_lstm_with_dense_layers,
+        "basic_cnn_lstm": build_basic_cnn_lstm_model,
+        "cnn_lstm_with_dense_layers": build_cnn_lstm_with_dense_layers,
+        "basic_bilstm": build_basic_bilstm_model,
+        "bilstm_with_dense_layers": build_bilstm_with_dense_layers,
+        "basic_cnn_bilstm": build_basic_cnn_bilstm_model,
+        "cnn_bilstm_with_dense_layers": build_cnn_bilstm_with_dense_layers,
+    }
+
+    if model_type not in model_types:
+        raise Exception("Not a valid model type! Pick from {}".format(model_types.keys()))
 
     training_pairs = generate_input_output_pairs(training_seqs)
 
@@ -306,11 +410,8 @@ def build_model(training_seqs):
     validX, validY = preprocess_data(training_pairs[:validation_threshold])
 
     # Build model
-    inputs = keras.Input(shape=(KMER_LENGTH, 1))
-    outputs = layers.LSTM(NUM_LSTM_LAYERS)(inputs)
-    outputs = layers.Dense(NUM_CLASSES, activation=OUTPUT_ACTIVATION_FUNC)(outputs)
-    model = keras.Model(inputs=inputs, outputs=outputs)
-    model.compile(loss=COST_FUNC, optimizer=OPTIMIZER, metrics=['accuracy'])
+    model, model_type_name = model_types[model_type]()
+    model.compile(loss=COST_FUNC, optimizer=OPTIMIZER, metrics=['categorical_accuracy'])
 
     history = model.fit(
         trainX,
@@ -322,7 +423,7 @@ def build_model(training_seqs):
         callbacks = [EarlyStopping(monitor="val_loss", patience=PATIENCE_THRESHOLD), ReportPatience()],
     )
     # model.summary()
-    return model, history
+    return model, history, model_type_name
 
 # =============================================================================
 def main():
@@ -342,49 +443,57 @@ def main():
     CHAR_TO_INT = {c: i for i, c in enumerate(all_chars)}
     INT_TO_CHAR = {v: k for k, v in CHAR_TO_INT.items()}
 
-    forward_model, _ = build_model(training_sequences)
-    reverse_model, _ = build_model(training_sequences_reversed)
+    # model_types = ["basic_lstm", "lstm_with_dense_layers"]
+    # model_types = ["basic_cnn_lstm", "cnn_lstm_with_dense_layers"]
+    model_types = [ "basic_bilstm", "bilstm_with_dense_layers", "basic_cnn_bilstm", "cnn_bilstm_with_dense_layers"]
+    for model_type in model_types:
+        forward_model, forward_history, model_name = build_model(training_sequences, model_type)
+        reverse_model, reverse_history, model_name = build_model(training_sequences_reversed, model_type)
 
-    # Forward model is trained on forward data, tested on forward data
-    testing_pairs = generate_input_output_pairs([target_sequence])
-    testX, testY = preprocess_data(testing_pairs)
-    _, accuracy = forward_model.evaluate(testX, testY)
-    print(f"Accuracy on Forward Model: {accuracy:.2f}")
+        # Forward model is trained on forward data, tested on forward data
+        testing_pairs = generate_input_output_pairs([target_sequence])
+        testX, testY = preprocess_data(testing_pairs)
+        _, forward_accuracy = forward_model.evaluate(testX, testY)
+        print(f"Accuracy on Forward Model: {forward_accuracy:.2f}")
 
-    # Reverse model is trained on reverse data, tested on reverse data
-    testing_pairs = generate_input_output_pairs([target_sequence_reversed])
-    testX, testY = preprocess_data(testing_pairs)
-    _, accuracy = reverse_model.evaluate(testX, testY)
-    print(f"Accuracy on Reverse Model: {accuracy:.2f}")
+        # Reverse model is trained on reverse data, tested on reverse data
+        testing_pairs = generate_input_output_pairs([target_sequence_reversed])
+        testX, testY = preprocess_data(testing_pairs)
+        _, reverse_accuracy = reverse_model.evaluate(testX, testY)
+        print(f"Accuracy on Reverse Model: {reverse_accuracy:.2f}")
 
-    # Now use both models to predict a de novo sequence based on target sequence
-    missing_indices = set([0, 1, 2, 24, 25, 26, 62, 63, 64, 66, 67, 68, 69, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 209, 210, 211, 212, 213])
-    de_novo_sequence = "".join(c if i not in missing_indices else "-" for i, c in enumerate(target_sequence))
+        # RUN HERE
+        save_result("Forward", forward_accuracy, forward_history.history, forward_model, model_name)
+        save_result("Reverse", reverse_accuracy, reverse_history.history, reverse_model, model_name)
 
-    pred_sequence_full = predict_gaps(de_novo_sequence, forward_model, reverse_model)
-    incorrect_indices = get_nonmatching_indices(target_sequence, pred_sequence_full)
-    correct_indices = missing_indices.difference(incorrect_indices)
+        # Now use both models to predict a de novo sequence based on target sequence
+        missing_indices = set([0, 1, 2, 24, 25, 26, 62, 63, 64, 66, 67, 68, 69, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 209, 210, 211, 212, 213])
+        de_novo_sequence = "".join(c if i not in missing_indices else "-" for i, c in enumerate(target_sequence))
 
-    # Print the three different sequences for visual inspection
-    print_sequence(target_sequence, "TARGET SEQUENCE")
-    print_sequence(de_novo_sequence,"DE NOVO SEQUENCE", missing_indices)
-    print_sequence(pred_sequence_full, "PREDICTED SEQUENCE", incorrect_indices, correct_indices)
+        pred_sequence_full = predict_gaps(de_novo_sequence, forward_model, reverse_model)
+        incorrect_indices = get_nonmatching_indices(target_sequence, pred_sequence_full)
+        correct_indices = missing_indices.difference(incorrect_indices)
 
-    # Compute final accuracy on de novo sequence
-    target_len = len(target_sequence)
-    full_accuracy = (target_len - len(incorrect_indices)) / target_len
-    print(f"Accuracy on De Novo Sequence: {full_accuracy}")
+        # Print the three different sequences for visual inspection
+        print_sequence(target_sequence, "TARGET SEQUENCE")
+        print_sequence(de_novo_sequence,"DE NOVO SEQUENCE", missing_indices)
+        print_sequence(pred_sequence_full, "PREDICTED SEQUENCE", incorrect_indices, correct_indices)
 
-    # Print the predictions in forward and reverse directions as well
-    forward_pred = predict_gaps(de_novo_sequence, forward_model=forward_model, reverse_model=None)
-    incorrect_indices = get_nonmatching_indices(target_sequence, forward_pred)
-    correct_indices = missing_indices.difference(incorrect_indices)
-    print_sequence(forward_pred, "FORWARD PREDICTIONS", incorrect_indices, correct_indices)
+        # Compute final accuracy on de novo sequence
+        target_len = len(target_sequence)
+        full_accuracy = (target_len - len(incorrect_indices)) / target_len
+        print(f"Accuracy on De Novo Sequence: {full_accuracy}")
 
-    reverse_pred = predict_gaps(de_novo_sequence, forward_model=None, reverse_model=reverse_model)
-    incorrect_indices = get_nonmatching_indices(target_sequence, reverse_pred)
-    correct_indices = missing_indices.difference(incorrect_indices)
-    print_sequence(reverse_pred, "REVERSE PREDICTIONS", incorrect_indices, correct_indices)
+        # Print the predictions in forward and reverse directions as well
+        forward_pred = predict_gaps(de_novo_sequence, forward_model=forward_model, reverse_model=None)
+        incorrect_indices = get_nonmatching_indices(target_sequence, forward_pred)
+        correct_indices = missing_indices.difference(incorrect_indices)
+        print_sequence(forward_pred, "FORWARD PREDICTIONS", incorrect_indices, correct_indices)
+
+        reverse_pred = predict_gaps(de_novo_sequence, forward_model=None, reverse_model=reverse_model)
+        incorrect_indices = get_nonmatching_indices(target_sequence, reverse_pred)
+        correct_indices = missing_indices.difference(incorrect_indices)
+        print_sequence(reverse_pred, "REVERSE PREDICTIONS", incorrect_indices, correct_indices)
 
 if __name__ == "__main__":
     main()
