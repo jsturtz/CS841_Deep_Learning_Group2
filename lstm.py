@@ -70,33 +70,8 @@ def save_result(test_accuracy, history, model, secs_to_train):
     ax.set_title(f'Accuracy')  # Add a title to the axes.
     ax.xaxis.set_major_locator(MaxNLocator(integer=True))
 
-    # FIXME: Was trying to add the model parameters to the figure but fuck it
-    # notes = {
-    #     "test_accuracy": test_accuracy,
-    #     "epochs_actually_trained": epoch_length,
-    # }
-
-    # notes.update(parameters)
-    # note = "\n".join(f"{name:<{pad_name}}: {value:>{pad_value}}" for name, value in notes.items())
-
-    # ax.annotate(note,
-    #             xy = (1.1, 0.5),
-    #             xycoords='axes fraction',
-    #             ha='left',
-    #             va="center",
-    #             fontsize=10)
-
     ax.legend();  # Add a legend.
     filename = f"{now}"
-
-    # FIXME: This shit sucks. The actual method to call depends on the backend used for the UI. This only works if backend
-    # is QT. Really stupid that it's written to be backend specific. Should be a universal call regardless of backend to
-    # ask the screen to render it (and save it) maximized.
-    # Since the size of the saved image is based on "maximizing" which is dependent on the particular machine that runs it,
-    # this code produces different size images for different machines, which also sucks. I'm too lazy to figure out how to
-    # Resize this thing appropriately
-    # manager = plt.get_current_fig_manager()
-    # manager.window.showMaximized()
     fig.savefig(os.path.join(RESULTS_PATH, f"{filename}_accuracy.png"))
 
     parameters = {
@@ -112,7 +87,6 @@ def save_result(test_accuracy, history, model, secs_to_train):
         "optimizer": OPTIMIZER,
         "output_activation_func": OUTPUT_ACTIVATION_FUNC,
         "hidden_layer_activation_func": HIDDEN_LAYER_ACTIVATION_FUNC,
-        # "training/validation/test split": f"{int(TRAINING_SPLIT * 100)}/{int(VALIDATION_SPLIT* 100)}/{int(TEST_SPLIT * 100)}",
         "patience_threshold": PATIENCE_THRESHOLD,
         "num_classes": NUM_CLASSES,
         "batch_size": BATCH_SIZE,
@@ -121,10 +95,8 @@ def save_result(test_accuracy, history, model, secs_to_train):
     result = {
         "test_accuracy": test_accuracy,
         "epochs_actually_trained": epoch_length,
-        # "num_trainable_vars": int(np.sum([np.prod(v.get_shape().as_list()) for v in model.trainable_variables])),
         "secs_to_train": secs_to_train,
         "parameters": parameters,
-        # "history": history,
     }
 
     path = os.path.join(RESULTS_PATH, f"{filename}_results.json")
@@ -409,10 +381,10 @@ def main():
     correct_indices = missing_indices.difference(incorrect_indices)
     print_sequence(forward_pred, "FORWARD PREDICTIONS", incorrect_indices, correct_indices)
 
-    forward_pred = predict_gaps(de_novo_sequence, forward_model=None, reverse_model=reverse_model)
-    incorrect_indices = get_nonmatching_indices(target_sequence, forward_pred)
+    reverse_pred = predict_gaps(de_novo_sequence, forward_model=None, reverse_model=reverse_model)
+    incorrect_indices = get_nonmatching_indices(target_sequence, reverse_pred)
     correct_indices = missing_indices.difference(incorrect_indices)
-    print_sequence(forward_pred, "REVERSE PREDICTIONS", incorrect_indices, correct_indices)
+    print_sequence(reverse_pred, "REVERSE PREDICTIONS", incorrect_indices, correct_indices)
 
 if __name__ == "__main__":
     main()
