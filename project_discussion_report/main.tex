@@ -325,9 +325,7 @@
     Our hyperparameters were chosen through manual trial-and-error. We did not implement
     any regularization techniques, nor did we use our validation set or cross validation to tune 
     any hyperparameters. All of our results for our different model architectures were generating
-    high accuracy (>98\%) on our single de novo sequence. In the future, we would like to experiment
-    more with tuning hyperparameters in particular if the task becomes harder for different starting
-    de novo sequences and therefore different training datasets. Table~\ref{tab:hyperparameters}
+    high accuracy (98-99\%) on our single de novo sequence. Table~\ref{tab:hyperparameters}
     displays our chosen hyperparameters.
 
     \begin{table}[h!]
@@ -356,10 +354,10 @@
     \end{table}
 
   \subsection{Predictions on De Novo Sequence}
-    To perform the task of deploying our models to predict gaps in our de novo sequence, 
+    To deploy our models to predict gaps in our de novo sequence, 
     we trained two models: one to learn the dependencies in the forward direction and
-    one to learn the dependencies in the reverse direction. This was necessary to deploy 
-    our models to predict gaps in the beginning or end of the target sequence. 
+    one to learn the dependencies in the reverse direction. This was necessary to predict 
+    gaps in the beginning or end of the target sequence. 
     For example, if our target sequence begins with "DIQMSP" and we want to predict "DIQ", then
     we cannot predict from the forward direction, since "DIQ" is the absolute start of 
     the sequence. We must therefore be able to predict "DIQ" given the sequence
