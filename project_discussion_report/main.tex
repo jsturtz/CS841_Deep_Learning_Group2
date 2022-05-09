@@ -34,7 +34,16 @@
 % As a general rule, do not put math, special symbols or citations
 % in the abstract or keywords.
 \begin{abstract}
-Abstract - clearly state problem, method, and results.
+  De novo protein sequencing using mass spectrometry or Edman degradation
+  suffers from the problem of producing only partial sequences of target proteins.
+  We explore the possibility of using deep learning techniques to perform the 
+  task of predicting gaps in partially sequenced proteins. Our method involves
+  querying the NCBI Protein Blast server for closest matching homologous sequences
+  to a partial sequence, then training two deep learning models to predict
+  in the forward and reverse directions the missing gaps. Our results show
+  high accuracy (98-99\%) in filling gaps of a particular partially sequenced 
+  de novo sequence of the light chain of alemtuzumab.
+
 \end{abstract}
 
 % Note that keywords are not normally used for peerreview papers.
@@ -66,16 +75,18 @@ Abstract - clearly state problem, method, and results.
     In our paper, we develop an approach using deep learning techniques to predict missing gaps in peptide sequences.
     Our approach begins with a partial sequence with gaps of known size. To retrieve the relevant training data,
     we query the National Center For Biotechnology Information (NCBI) Protein Blast server to retrieve the highest matching
-    homologous sequences to our partial sequence \cite{ncbi}. We train two models: one to predict peptides in the forward direction and one to predict in the reverse direction.
-    We then use both predictions to predict the missing peptides. Our deep learning models use LSTM layers to learn the
-    forward and reverse dependencies.
+    homologous sequences to our partial sequence \cite{ncbi}.We then train and deploy two models: one to learn dependencies
+    in the forward direction and another to learn dependencies in the reverse direction. We combine the two 
+    models' predictions to fill the gaps in the de novo protein sequence.
+
+    We train and evaluate four competing hybrid deep learning models combining LSTM and CNN layers.     
+    For the purpose of this project, we tested our model against only a single 
+    target sequence: the light chain of alemtuzumab. Our results show high accuracies (98-99\%) for all four of our model architectures,
+    with our Bi-LSTM-CNN model outperforming the others at 99.04\%.
 
     \subsection{Related Work}
-    % Related work should incldue current progress in sequencing, Genome sequencing and single cell sequencing.
-    % Should also refer to paper we are using as our basis for our project.
-    % Use google scholar to find those who cited our paper and those citations the paper has.
 
-    The history of using Mass Spectrometry to sequence proteins dates to several years ago.
+    Mass spectrometry continues to be a dominant method to perform protein sequencing \cite{mann2016rise}.
     In this approach, multiple proteases are employed to cleave the same protein sample separately.
     Because the cleavage of protein by the protease generates overlapping peptides, merging the spectral
     pairs of the overlapping peptides consecutively assembles into long contigs from which de novo
@@ -89,7 +100,7 @@ Abstract - clearly state problem, method, and results.
 
     Over the last 10 years, de novo protein sequencing has been researched
     extensively in computational proteomics and have been used successfully to deduce peptide sequence
-    of un-sequenced organisms, antibodies and post-translastionally modified peptides
+    of un-sequenced organisms, antibodies and post-translationally modified peptides
     \cite{ma2012novo,veltman2012novo, bandeira2007spectral}. For example,
     Mai et al. reported that their assembling algorithm, Multiple Contigs and Scaffolding
     successfully assembles the de novo identified peptides in contig-scaffold fashion, resulting in
@@ -107,7 +118,6 @@ Abstract - clearly state problem, method, and results.
 
 \section{Method}
 
-%   Method: Should have two subsctions (1) Data discussion (preprocessing, where we got it from etc), (2) LSTM / CNN model
   \subsection{Data Collection}
     For our initial project, we used as a target sequence the light chain of alemtuzumab referenced in Liu, et al.
     \cite{liu2014novo}. We manually removed the gaps produced by Liu et al.'s tandem mass spectrometry approach, then
@@ -116,20 +126,20 @@ Abstract - clearly state problem, method, and results.
     data range from 89.32\% to 82.52\% similarity.
 
   \subsection{Data Preprocessing}
-  We generated from our homologous sequences all kmers. A Kmer is a any substring of length K. For our models, we chose a
-  kmer-length of 5. Each kmer represents a single input. The output of each associated kmer is the next character in the sequence.
-  Thus, for instance, if one of our homologous sequences contains the substring "DIQM", then a single training instance would be
-  the input-output tuple (DIQ, M).
+    We generated from our homologous sequences all kmers. A kmer is a any substring of length K. For our models, we chose a
+    kmer-length of 5. Each kmer represents a single input, and the output of each associated kmer is the next character in the sequence.
+    Thus, for instance, if one of our homologous sequences contains the substring "DIQMSQ", then a single training instance would be
+    the input-output tuple (DIQMS, Q).
 
-  From our ten homologous sequences, we generated 2106 number of input-output pairs with an input length of 5.
-  The kmer length will represent the timesteps in our LSTM layer.
-  To be fed into a neural network, the data must be encoded numerically, so we assigned integer labels to each character.
-  The output of each training instance is a
-  one-hot encoded vector to represent the target classes. Since we are training two models, one for forward prediction
-  and one for reverse prediction, we generate the same training data in both the reverse and forward directions.
+    From our ten homologous sequences, we generated 2106 number of input-output pairs with an input length of 5.
+    The kmer length represents the timesteps in our LSTM layer.
+    To be fed into a neural network, the data must be encoded numerically, so we assigned integer labels to each character.
+    The output of each training instance is a
+    one-hot encoded vector to represent the target classes. Since we are training two models, one for forward prediction
+    and one for reverse prediction, we generate the same training data in both the reverse and forward directions.
 
-  The samples of forward and reverse input-output pairs are divided into train and validation sets with the ratio of
-  90\% and 10\% respectively. The validation set is used to perform hyperparameter tuning.
+    The samples of forward and reverse input-output pairs are divided into training and validation sets with the ratio of
+    90\% and 10\% respectively. The validation set is used to prevent overfitting.
 
 \subsection{Data Normalization}
     The input pairs are normalized by dividing with number of classes to obtain a range between [0, 1].
@@ -137,149 +147,275 @@ Abstract - clearly state problem, method, and results.
     This data normalization technique is applied to forward, reverse and test data input-output pairs.
     Normalization helps speed the training process.
 
-  \subsection{Model Overview}
+\subsection{Model Selection}
 
     For our sequence prediction task, we built four deep learning models combining convolutional neural
-    networks (CNN) with long short term memory (LSTM). The CNN layer helps with automatic feature extraction, in particular
-    if there are patterns within each kmer that can be extracted for better predictions. The LSTM layer learns
-    the dependencies in the sequence data to predict the correct output. For our four hybrid models, we also
-    added two dense hidden layers with ReLu activation and a final output layer with softmax activation.
+    networks (CNN) with long short term memory (LSTM). The CNN layer in theory helps with automatic feature extraction, in particular
+    if there are patterns within each kmer that can be extracted for better predictions. The LSTM layer is the 
+    core of our models, since LSTM is useful for learning sequence dependencies in our input data.
+    For our four hybrid models, we also added two dense hidden layers with ReLu activation and a
+    final output layer with softmax activation.
 
-    Our four hybrid models are LSTM, CNN-LSTM, Bi-LSTM, and CNN-Bi-LSTM.
-    The purpose of using four models is to compare their results.
-
-    The workflow for the proposed work is shown in Figure 1.
-
-    % We added two extra dense hidden layers with ReLu activation after our LSTM layer and a final output layer, using softmax activation.
-
-    % Our four hybrid models
-    % We built four hybrid models for the de novo sequence predictions:
-    % LSTM, CNN-LSTM, Bi-LSTM and CNN-Bi-LSTM.
-    % For all four models, we used the same preprocessing techniques.
-    % The CNN layer is used as the feature extraction stage, and it is given as the input to
-    % the LSTM/Bi-LSTM layers which passes its outputs to two hidden dense relu-activated layers and finally
-    % the output layer. The output layer uses softmax activation. The loss function for all the models
-    % is cross entropy.
-
+    It is not clear a priori whether LSTM or Bi-LSTM would be more effective in our prediction task; nor is it clear
+    whether the addition of the convolutional layer would improve our results. We thus opted to evaluate and compare
+    four hybrid models: LSTM, CNN-LSTM, Bi-LSTM, and CNN-Bi-LSTM.
+    The workflow for the proposed approach is shown in Figure~\ref{fig:model_diagram}.
 
     \begin{figure}[h]
       \centering
-      \includegraphics[width=8cm]{Model_Diagram.JPG}
-      \caption{Model diagram for multi-classification of sequence data}
+      \includegraphics[width=8cm]{figures/Model_Diagram.JPG}
+      \caption{Model Diagram for Multi-Classification of Sequence Data}
+      \label{fig:model_diagram}
     \end{figure}
 
     \subsubsection{CNN}
-    CNN is a powerful deep learning technique for feature extraction.
-    CNN is often used on 2-dimensional and 3-dimensional datasets, e.g. image or video datasets.
-    We use a 1-dimensional convolutional layer that convolves the kmers to extract any meaningful
-    features. The convolutional layer has 128 filters with a kernel size of 3, so minimally the kmer-length cannot be
-    smaller than 3. The feature maps from this layer forms as input to the LSTM or Bi-LSTM layer.
+      CNN is a powerful deep learning technique for feature extraction.
+      CNN is often used on 2-dimensional and 3-dimensional datasets, e.g. image or video datasets.
+      We use a 1-dimensional convolutional layer that convolves the kmers to extract any meaningful
+      features. The convolutional layer has 128 filters with a kernel size of 3, so minimally the kmer-length cannot be
+      smaller than 3. The feature maps from this layer forms as input to the LSTM or Bi-LSTM layer.
 
     \subsubsection{LSTM}
-    Characteristic of the LSTM architecture is a set of chained together cells called "memory blocks". The number
-    of memory blocks in the chain equals the length of the timesteps in our target dataset (Fig 2).
-    Each memory cell has three gating units (forget, input and output gates) which
-    conditionally regulate how information flows into and out of the memory block (Fig 3). Intuitively,
-    the "forget" gate can be viewed as a step where irrelevant information from the hidden state
-    is first "forgotten" before being passed to the input gate, which constructs the new cell state.
-    Before that cell state can output its value to the next memory cell, it is filtered again through
-    an output gate that decides what values to keep internal to the memory cell (i.e. the hidden state)
-    and what to output to the next memory cell or final output layer.
-    The LSTM layer is helpful, therefore, for learning the important sequence dependencies for performing
-    sequence predictions.
+      The LSTM architecture consists of a set of chained together cells called "memory blocks". The number
+      of memory blocks in the chain equals the length of the timesteps in our target dataset.
+      Each memory cell has three gating units (forget, input, and output gates) which
+      conditionally regulate how information flows into and out of the memory block (Figure~\ref{fig:lstm_architecture}). 
+      Intuitively, the "forget" gate can be viewed as a step where irrelevant information from the hidden state
+      is first "forgotten" before being passed to the input gate, which constructs the new cell state.
+      Before that cell state can output its value to the next memory cell, it is filtered again through
+      an output gate that decides what values to keep internal to the memory cell (i.e. the hidden state)
+      and what to output to the next memory cell or final output layer.
+      The LSTM layer is helpful, therefore, for learning the important sequence dependencies for performing
+      sequence predictions.
 
-    \subsubsection{Bidirectional LSTM}
-        Bidirectional LSTM is a modification of the LSTM architecture that permits the model to learn both the
-        forward and reverse dependencies. The way it acheives this is to have two LSTM layers, one consuming
-        the timesteps in the forward direction and the other consuming the timesteps in the reverse direction.
-        The two layers then merge their results to produce the final output.
+      \begin{figure}[h]
+        \centering
+        \includegraphics[width=8cm]{figures/jordan_lstm_architecture.png}
+        \caption{LSTM Architecture Inside a Memory Cell}
+        \label{fig:lstm_architecture}
+      \end{figure}
 
-    \begin{figure}[h]
-      \centering
-      \includegraphics[width=8cm]{bidirectional-lstm.jpeg}
-      \caption{Bidirectional LSTM Architecture}
-    \end{figure}
+    \subsubsection{Bi-LSTM}
+      Bidirectional LSTM (Bi-LSTM) is a modification of the LSTM architecture that permits the model to learn both the
+      forward and reverse dependencies. Bi-LSTM uses two LSTM layers, one consuming
+      the timesteps in the forward direction and the other consuming the timesteps in the reverse direction.
+      The two layers then merge their results to produce the final output. See Figure~\ref{fig:bidirectional_diagram}
+      for an illustration.
 
-    \begin{figure}[h]
+      \begin{figure}[h]
+        \centering
+        \includegraphics[width=8cm]{figures/bidirectional-lstm.jpeg}
+        \caption{Bidirectional LSTM Architecture}
+        \label{fig:bidirectional_diagram}
+      \end{figure}
+
+\section{Overall Model Architecture}
+
+  All four of our hybrid models share common features. If there is a convolutional
+  layer, it is the first layer after the input layer. After that,
+  the next layer is either the LSTM or Bi-LSTM layer. After that,
+  the results are passed to two hidden densely connected layer with ReLu activation,
+  which pass their results to the final dense layer with
+  softmax activation. The number of neurons in the final output layer
+  equals the number of our target classes. See Figure~\ref{fig:model_architectures}.
+
+  \begin{figure}[h]
     \centering
-    \tikzstyle{place}=[rectangle,draw, thick, minimum width=30, minimum height=10]
-    \begin{tikzpicture}
-        \node at (0,0) [place] (first) {Memory Cell};
-        \node at (3,0) [place] (second) {Memory Cell};
-        \node at (6,0) [place] (third) {Memory Cell};
-        % \draw [->] (0,0) -- (first.west);
-        \draw [->] (first.east) -- (second.west);
-        \draw [->] (second.east) -- (third.west);
-        % \draw [->] (third.east) -- (10,0);
-        \draw[decoration={brace,mirror,raise=10pt},decorate](first.south west) -- node[below=16pt] {Number of cells = number of time steps} (third.south east);
-    \end{tikzpicture}
-    \caption{Illustration of recurrently chained memory cells}
-    \end{figure}
-
-    \begin{figure}[h]
-      \centering
-      \includegraphics[width=8cm]{jordan_lstm_architecture.png}
-      \caption{LSTM architecture inside a memory cell}
-    \end{figure}
-
-    \section{Model Architectures}
-
-%   Model architecture: CNN / LSTM. Create diagram showing overall architecture. Discuss hyperparameters of model.
-
-  \subsection{CNN}
-  \subsection{LSTM}
-  \subsection{LSTM-CNN}
-  \subsection{BiLSTM-CNN}
+    \includegraphics[width=8cm]{figures/model_architectures.png}
+    \caption{Deep Learning Model Architecture}
+    \label{fig:model_architectures}
+  \end{figure}
 
 \section{Experimental Results}
-  Experimental results: Implementation process, tuning hyperparameters,
-  show predictions in amino acid gaps
-  (deploy the model and show its accuracy on a particular instance)
-  \subsection{Tuning hyperparameters}
-  \subsection{Accuracy/loss/confusion matrix/whatever}
+  \subsection{Experimental Model Architectures}
+
+    We initially experimented with a simple input-LSTM-output architecture. By itself, a single LSTM layer acheived high
+    accuracy with minimal amount of training. We attribute this largely to the quality of our
+    training dataset. Indeed, all of the training instances had between 89.32\% to 82.52\% similarity
+    match to our target sequence. The lower the similarity between our target sequence and the training
+    data, the lower our expected accuracy and thus the greater the difficulty in the sequencing task.
+
+    We added two hidden Dense layers after the initial LSTM layer and the accuracy improved marginally.
+    In subsequent model trials, we kept the two hidden layers since they showed marginal improvement
+    over leaving them out.
+
+    We settled on four competing architectures to run: LSTM, CNN-LSTM, BiLSTM, and CNN-BiLSTM.
+    Their testing accuracies, final loss values, and final validation loss values are displayed
+    in Table~\ref{tab:model_results}.
+
+    Our models all exhibited slight overfitting, though not enough to be significant.
+    Figures~\ref{fig:lstm_accuracy},~\ref{fig:cnn_accuracy},~\ref{fig:bilstm_accuracy},~and~\ref{fig:cnn_bilstm_accuracy}
+    plot training accuracy against validation accuracy for our four models, and 
+    Figures~\ref{fig:lstm_loss},~\ref{fig:cnn_loss},~\ref{fig:bilstm_loss},~and~\ref{fig:cnn_bilstm_loss}
+    plot training loss versus validation loss for all four models.
+
+    \begin{table}[h!]
+      \begin{center}
+        \begin{tabular}{l|l|l|l} % <-- Alignments: 1st column left, 2nd middle and 3rd right, with vertical lines in between
+          & \textbf{Test Accuracy} & \textbf{Training Loss} & \textbf{Validation Loss}\\
+          \hline
+          LSTM        & $98.56\%$ & $0.0964$ & $0.4546$ \\
+          Bi-LSTM     & $98.09\%$ & $0.1282$ & $0.6051$ \\
+          CNN-LSTM    & $98.56\%$ & $0.0948$ & $0.5604$ \\
+          Bi-CNN-LSTM & $99.04\%$ & $0.0884$ & $0.6719$ \\
+        \end{tabular}
+        \caption{Comparing Different Model Architectures}
+        \label{tab:model_results}
+      \end{center}
+    \end{table}
+  
+    \begin{figure}[h]
+      \centering
+      \includegraphics[width=8cm]{figures/01-58-36Forward_LSTM With Dense Layers_accuracy.png}
+      \caption{LSTM Accuracy}
+      \label{fig:lstm_accuracy}
+    \end{figure}
+
+    \begin{figure}[h]
+      \centering
+      \includegraphics[width=8cm]{figures/02-07-24Forward_CNN LSTM With Dense Layers_accuracy.png}
+      \caption{CNN LSTM Accuracy}
+      \label{fig:cnn_accuracy}
+    \end{figure}
+
+    \begin{figure}[h]
+      \centering
+      \includegraphics[width=8cm]{figures/02-31-57Forward_Bi-LSTM With Dense Layers_accuracy.png}
+      \caption{Bi-LSTM Accuracy}
+      \label{fig:bilstm_accuracy}
+    \end{figure}
+
+    \begin{figure}[h]
+      \centering
+      \includegraphics[width=8cm]{figures/02-34-46Forward_CNN Bi-LSTM With Dense Layers_accuracy.png}
+      \caption{CNN Bi-LSTM Accuracy}
+      \label{fig:cnn_bilstm_accuracy}
+    \end{figure}
+
+    \begin{figure}[h]
+      \centering
+      \includegraphics[width=8cm]{figures/01-58-36ForwardLSTM With Dense Layers_loss.png}
+      \caption{LSTM Loss}
+      \label{fig:lstm_loss}
+    \end{figure}
+
+    \begin{figure}[h]
+      \centering
+      \includegraphics[width=8cm]{figures/02-07-24ForwardCNN LSTM With Dense Layers_loss.png}
+      \caption{CNN LSTM Loss}
+      \label{fig:cnn_loss}
+    \end{figure}
+
+    \begin{figure}[h]
+      \centering
+      \includegraphics[width=8cm]{figures/02-31-57Forward_Bi-LSTM With Dense Layers_loss.png}
+      \caption{Bi-LSTM Loss}
+      \label{fig:bilstm_loss}
+    \end{figure}
+
+    \begin{figure}[h]
+      \centering
+      \includegraphics[width=8cm]{figures/02-34-46Forward_CNN Bi-LSTM With Dense Layers_loss.png}
+      \caption{CNN Bi-LSTM Loss}
+      \label{fig:cnn_bilstm_loss}
+    \end{figure}
+
+  \subsection{Hyperparameters}
+
+    Our hyperparameters were chosen through manual trial-and-error. We did not implement
+    any regularization techniques, nor did we use our validation set or cross validation to tune 
+    any hyperparameters. All of our results for our different model architectures were generating
+    high accuracy (>98\%) on our single de novo sequence. In the future, we would like to experiment
+    more with tuning hyperparameters in particular if the task becomes harder for different starting
+    de novo sequences and therefore different training datasets. Table~\ref{tab:hyperparameters}
+    displays our chosen hyperparameters.
+
+    \begin{table}[h!]
+      \begin{center}
+        \caption{Hyperparameters}
+        \label{tab:hyperparameters}
+        \begin{tabular}{l|l|l} % <-- Alignments: 1st column left, 2nd middle and 3rd right, with vertical lines in between
+          & \textbf{Hyperparameter} & \textbf{Value} \\
+          \hline
+          \textbf{Shared} & Kmer Length                      & 5 \\
+                          & Epochs                           & 100 \\
+                          & First Dense Layer Neurons        & 128 \\
+                          & Second Dense Layer Neurons       & 64 \\
+                          & Cost Function                    & Categorical Cross Entropy \\
+                          & Optimizer                        & ADAM \\
+                          & Output Activation Function       & Softmax \\
+                          & Dense Layer Activation Function  & ReLu \\
+                          & Batch Size                       & 64 \\
+          \hline
+          \textbf{CNN}    & Number of Convolutional Filters  & 128 \\
+                          & Convolutional Filter Size        & 3 \\
+          \hline
+          \textbf{LSTM}   & Number of LSTM Neurons           & 256 \\
+        \end{tabular}
+      \end{center}
+    \end{table}
+
   \subsection{Predictions on De Novo Sequence}
+    To perform the task of deploying our models to predict gaps in our de novo sequence, 
+    we trained two models: one to learn the dependencies in the forward direction and
+    one to learn the dependencies in the reverse direction. This was necessary to deploy 
+    our models to predict gaps in the beginning or end of the target sequence. 
+    For example, if our target sequence begins with "DIQMSP" and we want to predict "DIQ", then
+    we cannot predict from the forward direction, since "DIQ" is the absolute start of 
+    the sequence. We must therefore be able to predict "DIQ" given the sequence
+    ahead of it. Similarly, we must predict in the forward direction for gaps at the absolute end of the sequence.
+
+    This use of two models implies a potential disagreement: one model may predict
+    a different value than the other for those middle gaps with enough
+    preceding values to create a valid input. See Figure~\ref{fig:forward_reverse_predictions}
+    for an example of two different predictions from one sample run.
+    
+    To resolve any disagreement between the two models, 
+    we opted to choose the prediction with the highest corresponding associated
+    probability. By associated probability, we mean the output value
+    of the output class with the highest probability.
+    Since softmax outputs a probability distribution over the target classes,
+    the prediction with the higher associated probability ought to be 
+    preferred since its higher probability represents the "certainty"
+    the model has in its prediction. 
+
+    With this simple algorithm, we deployed our dual models to predict
+    gaps in our de novo sequence, achieving 100\% accuracy for the test gaps.
+    See Figure~\ref{fig:full_predictions}.
+
+    \begin{figure}[h]
+      \centering
+      \includegraphics[width=8cm]{figures/forward_reverse_predictions.png}
+      \caption{Illustration of Conflicting Predictions}
+      \label{fig:forward_reverse_predictions}
+    \end{figure}
+
+    \begin{figure}[h]
+      \centering
+      \includegraphics[width=8cm]{figures/full_predictions.png}
+      \caption{Illustration of Complete Predictions}
+      \label{fig:full_predictions}
+    \end{figure}
 
 \section{Conclusion}
-  Conclusion: Summarize project
+  Our project aims to explore the possibility of using deep learning techniques to 
+  solve an otherwise hard problem of predicting gaps in partial peptide de novo 
+  sequences. We have demonstrated that with various LSTM-based deep learning models
+  it is possible to achieve high accuracy on peptide sequences with gaps that have high 
+  similarity scores in known protein databases.
+
+  The approach we describe here generalizes to any other de novo sequence and in fact
+  other sequencing problems beyond protein sequencing. Further research is needed to 
+  explore the challenges and limitations of this approach, in particular for
+  de novo sequences for which the highest similarity score in known protein databases 
+  is comparatively low. Moreover, our approach relies on an assumption that gap 
+  lengths in partial sequences are known in advance. In practice, partial sequence
+  gaps may be unknown. It may be possible to solve this problem by employing
+  forward and reverse predictions to generate overlapping sections or to use other 
+  data features (for instance, known total mass of the gap) to successfully predict
+  gaps of unknown length.
 
 \bibliographystyle{IEEEtran}
 \bibliography{main}
 
-% \begin{thebibliography}{10}
-
-% \bibitem{cnn-hybrid}
-%   H.~Gunasekaran, K.~Ramalakshmi, A.~Rex~Macedo~Arokiaraj, S.~Deepa~Kanmani, C.~Venkatesan, and C.~Suresh~Gnana~Dhas.
-%   "Analysis of DNA Sequence Classification Using CNN and Hybrid Models."
-%   \emph{Computational and mathematical methods in medicine}, 2021.
-% \bibitem{IEEEhowto:kopka}
-%   S.~Shadab,~M.~T.~Alam~Khan,~N.~A.~Neezi,~S.~Adilina,~and~S.~Shatabda,
-%   “DeepDBP: deep neural networks for identification of DNA-binding proteins,”
-%   \emph{Informatics in Medicine Unlocked}, vol. 19, article 100318, 2020.
-% \bibitem{IEEEhowto:kopka}
-%   M~.Pop and S~Salzberg. "Bioinformatics challenges of new sequencing technology."
-%   \emph{Trends Genet}. vol. 24, no. 3, 142-149. 2008, doi: 10.1016/j.tig.2007.12.006.
-% \bibitem{IEEEhowto:kopka}
-%   S.~C.~Pakhrin,~B.~Shrestha,~B.~Adhikari,~and~D.~B.~Kc,
-%   "Deep learning-based advances in protein structure prediction,"
-%   \emph{Int. J. Mol. Sci.}, vol. 22, no. 11, 2021, doi: 10.3390/ijms22115553.
-% \bibitem{IEEEhowto:kopka}
-%   A.~Tasdelen and B.~Sen. "A hybrid CNN-LSTM model for pre-miRNA classification."
-%   \emph{Scientific reports}, vol. 11, no. 1, 1-9. 2021.
-% \bibitem{IEEEhowto:kopka}
-%   J.~Chinju, O.~Matthew,~and~J.~Sahoo. "CNN-LSTM based classification of polo like kinase family of Proteins: An emerging cancer drug target."
-%   \emph{Materials Today: Proceedings}, 2022.
-% \bibitem{IEEEhowto:kopka}
-%   S.~K.~Sønderby~and~O.~Winther, "Protein Secondary Structure Prediction with Long Short Term Memory Networks," 2014,
-%   [Online]. Available: http://arxiv.org/abs/1412.7828.
-% \bibitem{IEEEhowto:kopka}
-%   N.~G.~Nguyen,~V.~A.~Tran,~D.~L.~Ngo et al., “DNA sequence classification by convolutional neural network,” \emph{Journal of Bio-
-%   medical Science and Engineering}, vol. 9, no. 5, pp. 280–286, 2016.
-% \bibitem{IEEEhowto:kopka}
-%   D.~T.~Do~and~N.~Q.~K.~Le, “Using extreme gradient boosting to identify origin of replication in Saccharomyces cerevisiae via
-%   hybrid features,” \emph{Genomics}, vol. 112, no. 3, pp. 2445–2451,2020
-% \bibitem{IEEEhowto:kopka}
-%   X.~Zhang,~B.~Beinke,~B.~Al~Kindhi,~and~M.~Wiering, “Comparing machine learning algorithms with or without feature extraction for DNA classification"
-%   2020, http://arxiv.org/abs/2011.00485
-
-% \end{thebibliography}
 \end{document}
