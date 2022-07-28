@@ -1,0 +1,24 @@
+{
+    "test_accuracy": 0.15789473056793213,
+    "val_categorical_accuracy": 0.18571428954601288,
+    "categorical_accuracy": 0.15295358002185822,
+    "loss": 2.8033299446105957,
+    "val_loss": 2.734820604324341,
+    "epochs": 100,
+    "parameters": {
+        "kmer_length": 5,
+        "max_epoch_length": 100,
+        "first_dense_layer": 128,
+        "second_dense_layer": 64,
+        "num_filters": 128,
+        "filter_size": 3,
+        "num_lstm_layers": 256,
+        "cost_func": "categorical_crossentropy",
+        "optimizer": "adam",
+        "output_activation_func": "softmax",
+        "hidden_layer_activation_func": "relu",
+        "validation_percent": 0.1,
+        "num_classes": 20,
+        "batch_size": 64
+    }
+}
